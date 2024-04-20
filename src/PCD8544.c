@@ -198,7 +198,7 @@ void clearBank(unsigned char bank) {
     setAddr(0, bank);
 }
 
-char dtohex(int i) {
+char i2h(uint8_t i) {
   if(i < 10)
     return '0' + i;
   else

@@ -14,14 +14,35 @@
 #ifndef USCI_A0_UART_H_
 #define USCI_A0_UART_H_
 
-enum frame { UNKNOWN, RMC, VTG, GGA, GSA };
+//                 0    1    2    3    4    5
+enum frame { UNKNOWN, RMC, VTG, GGA, GSA, GSV };
+
+extern volatile uint8_t rxbuffer[];		//serial buffer, simple linear until break character /r
+extern volatile uint8_t bitTrack, msg_count;
+extern volatile uint8_t checksum, checksum_idx;
+extern volatile enum frame frame_type;
+extern volatile bool new_frame, crc_good;
+
+// NMEA fields:
+extern volatile char fix_status;
+extern volatile bool fix_status_upd;
+extern volatile uint8_t used_sats;
+extern volatile bool used_sats_upd;
+extern volatile char date[];
+extern volatile uint8_t date_upd;
+extern volatile char time[];
+extern volatile uint8_t time_upd;
+extern volatile char longitude[];
+extern volatile uint16_t longitude_upd;
+extern volatile char latitude[];
+extern volatile uint16_t latitude_upd;
 
 void initUART(void);					//init the uart interface
-void puts(const char *str);					//send string
-void putc(uint8_t data);				//send character
+void putstring(const char *str);					//send string
+void sendchar(uint8_t data);				//send character
 bool gets(uint8_t data[]);				//get string terminated with linebreak - max length 16 char
-const uint8_t* rxBuf();		//serial buffer, simple linear until break character /r
-void ack_frame();
-bool new_frame();
+
+uint8_t h2i(char h);
+extern char i2h(uint8_t i);
 
 #endif /* USCI_A0_UART_H_ */

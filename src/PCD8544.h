@@ -23,6 +23,8 @@
 #define LCD5110_COMMAND             0
 #define LCD5110_DATA                1
 
+#include  "common.h"
+
 void setAddr(unsigned char xAddr, unsigned char yAddr);
 void writeToLCD(unsigned char dataCommand, unsigned char data);
 void writeCharToLCD(char c);
@@ -30,6 +32,6 @@ void writeStringToLCD(const char *string);
 void initLCD();
 void clearLCD();
 void clearBank(unsigned char bank);
-char dtohex(int i);
+char i2h(uint8_t i);
 
 #endif /*PCD8544_H_*/
