@@ -17,8 +17,11 @@
 //      |              DIN|<-- Data Input --------------------------|J2.15  P1.7        |
 //      |               DC|<-- Data/Command (high/low) -------------|J2.13  P2.5        |
 //      |               CE|<-- Chip Enable (active low) ------------|J1.8   P2.0        |
-//      |              RST|<-- Reset -------------------------------|J2.16  RST
-//
+//      |              RST|<-- Reset -------------------------------|J2.16  RST         |
+//       -----------------                                          |                   |
+//                                                                  |                   |
+//                                                                  |                   |
+//                                                                  |J                  |
 //
 //  This example is based on the RobG's example : http://forum.43oh.com/topic/1312-nokia-5110-display
 //  Changes:
@@ -32,6 +35,8 @@
 #include <msp430g2553.h>
 #include "PCD8544.h"
 #include "USCI_A0_uart.h"
+#include "timer.h"
+#include "adc.h"
 
 #define NMEA_RMC_LOCK 23
 #define NMEA_RMC_TIM 6
@@ -61,26 +66,51 @@ int8_t lat_array[] = { 0, 1, 3, 4,-1, 6, 7, 8, 9,-1, 11 }; // 11
 int8_t lon_array[] = { 0, 1, 2, 4, 5,-1, 7, 8, 9,10,-1, 12 }; // 12
 // 3 -> degrees
 // 4 -> apostrophe
+
+uint16_t ocxo_temperature, adc_val;
+
+/* WDT is clocked by fACLK (assumed 10kHz) */
+#define WDT_XDLY_3267       (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL)                 /* 3267.8ms  " /32768 */
+#define WDT_XDLY_819        (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL+WDTIS0)          /* 819.2ms   " /8192  */
+#define WDT_XDLY_51         (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL+WDTIS1)          /* 51.2ms    " /512   */
+#define WDT_XDLY_6_4        (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL+WDTIS1+WDTIS0)   /* 6.4ms   " /64    */
+
 void initCPU(void){
-	  WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
+	  //WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
+    //WDTCTL = WDT_XDLY_6_4;
+    WDTCTL = WDT_XDLY_51;
+    //WDTCTL = WDT_MDLY_0_5;                    //equivalent to half millisecond
+    IE1 |= WDTIE;                             // Enable WDT interrupt}
+
 	  DCOCTL = 0;                               // Run at 16 MHz
 	  BCSCTL1 = CALBC1_16MHZ;                   //
 	  DCOCTL  = CALDCO_16MHZ;                   //
-	  BCSCTL2 = SELM_0;							// use DCO as system clock (MCLK)
+	  BCSCTL2 = SELM_0;							            // use DCO as system clock (MCLK)
 	  BCSCTL1 |= DIVA_0;                        // ACLK/0
-	  BCSCTL3 |= XCAP_3;						//12.5pF cap- setting for 32768Hz crystal
+	  BCSCTL3 |= LFXT1S_3;						            //12.5pF cap- setting for 32768Hz crystal
 }
 
 void initSPI(void) {
 
-  P2OUT |= LCD5110_SCE_PIN | LCD5110_DC_PIN | LCD5110_BL_PIN | LCD5110_RST_PIN;  // Disable LCD, set Data mode
-  P2DIR |= LCD5110_SCE_PIN | LCD5110_DC_PIN | LCD5110_BL_PIN | LCD5110_RST_PIN;  // Set pins to output direction
+  P2OUT |= LCD5110_DC_PIN | LCD5110_BL_PIN;  // Disable LCD, set Data mode
+  P2DIR |= LCD5110_DC_PIN | LCD5110_BL_PIN;  // Set pins to output direction
+#ifndef SPI_MODE_4_WIRE
+  P1OUT |= LCD5110_SCE_PIN;  // Disable LCD, set Data mode
+  P1DIR |= LCD5110_SCE_PIN;  // Set pins to output direction
+#endif /* SPI_MODE_4_WIRE */
 
   // Setup USIB
-  P1SEL |= LCD5110_SCLK_PIN | LCD5110_DN_PIN;
-  P1SEL2 |= LCD5110_SCLK_PIN | LCD5110_DN_PIN;
-
+#ifdef SPI_MODE_4_WIRE
+  P1DIR |= LCD5110_SCE_PIN;  // Set pins to output direction
+  P1SEL |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
+  P1SEL2 |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
+  UCB0CTL0 |= UCCKPH | UCMSB | UCMST | UCMODE_2 | UCSYNC; // 4-pin, 8-bit SPI master
+#else
+  P1SEL |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
+  P1SEL2 |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
   UCB0CTL0 |= UCCKPH | UCMSB | UCMST | UCSYNC; // 3-pin, 8-bit SPI master
+#endif /* SPI_MODE_4_WIRE */
+
   UCB0CTL1 |= UCSSEL_2;               // SMCLK
   UCB0BR0 |= 0x01;                    // 1:1
   UCB0BR1 = 0;
@@ -92,8 +122,12 @@ int main(void) {
     initCPU();
     initUART();
     initSPI();
+    initTIMER();
+    initADC();
 
-    int c, i;
+    __bis_SR_register(GIE);       // Enter LPM0, interrupts enabled
+
+    int c, i, k = 0;
 
     for(i = 16; i > 0; --i)
       __delay_cycles(500000);
@@ -104,9 +138,13 @@ int main(void) {
     for(i = 16; i > 0; --i)
       __delay_cycles(500000);
 
+    setAddr(0, 3);
+    if(IFG1 & OFIFG)
+      writeStringToLCD("32k x-tal fault");
+
     // it was power on so perform full reset of GPS module
     setAddr(10, 2);
-    if((IFG1 & RSTIFG)) {
+    if(IFG1 & RSTIFG) {
       writeStringToLCD("warm start");
     } else {
       writeStringToLCD("GPS Reset");
@@ -124,6 +162,7 @@ int main(void) {
     LCD5110_BL_ON;
 
     i = 0;
+
     // 01:23:45
     setAddr(12, 5);
     writeCharToLCD(':');
@@ -134,7 +173,7 @@ int main(void) {
     writeCharToLCD('-');
     setAddr(30, 4);
     writeCharToLCD('-');
-    clearBank(2);
+/*    clearBank(2);
     // 2-> degrees
     // 5-> apostrophe
     setAddr(2*6, 2);
@@ -147,15 +186,15 @@ int main(void) {
     writeCharToLCD(0x7F);
     setAddr(6*6, 3);
     writeCharToLCD('\'');
+*/
+    clearBank(1);
+    clearBank(2);
+    clearBank(3);
     while(1) {
         //clearLCD();
         //setAddr(0, 0);
 
-      if(new_frame) { //} && crc_good) {
-        uint8_t rx_crc = 16 * h2i(rxbuffer[checksum_idx-1]) + h2i(rxbuffer[checksum_idx]);
-
-//        if(crc_good) {
-//      if(new_frame) {
+      if(new_frame && crc_good) {
         new_frame = FALSE;
         setAddr(84 - 6, 5);
         switch(msg_count % 4) {
@@ -164,6 +203,20 @@ int main(void) {
           case 2: writeCharToLCD('|'); break;
           case 3: writeCharToLCD('\\'); break;
         }
+        setAddr(0, 0);
+        clearBank(0);
+        ocxo_temperature = getTemperature();
+        writeQ88ToLCD(ocxo_temperature);
+        writeCharToLCD(0x7F);
+        writeCharToLCD('C');
+        setAddr(54, 4);
+        writeDecToLCD(getSeconds());
+        writeCharToLCD('s');
+
+        pixel(k, 8 * 4 - (ocxo_temperature >> 9));
+        ++k;
+        k %= 84;
+
         switch(frame_type) {
           case RMC:
             for(c = 0; c < 6; ++c) {
@@ -181,26 +234,24 @@ int main(void) {
                 date_upd &= ~(1<<c);
               }
             }
-            for(c = 0; c < 12; ++c) {
+/*            for(c = 0; c < 12; ++c) {
               if((latitude_upd & (1<<c)) && (lat_array[c] >= 0)) {
                 setAddr(lat_array[c]*6, 2);
                 writeCharToLCD(latitude[c]);
                 latitude_upd &= ~(1<<c);
               }
             }
-            //setAddr(0, 3);
             for(c = 0; c < 13; ++c) {
               if((longitude_upd & (1<<c)) && (lon_array[c]) >= 0) {
                 setAddr(lon_array[c]*6, 3);
                 writeCharToLCD(longitude[c]);
                 longitude_upd &= ~(1<<c);
               }
-            }
+            }*/
             if(fix_status_upd) {
               setAddr(84 - (6 * 4), 5);
               writeCharToLCD(fix_status);
             }
-//              writeStringToLCD(time);
           break;
           case GGA:
             if(used_sats_upd) {
@@ -238,54 +289,14 @@ int main(void) {
             setAddr(0, i);
             for(c = 2; c < 6; c++)
               writeCharToLCD(rxbuffer[c]);
-            // wait for the checksum to arrive at the uart
-            // otherwise the previously received is still there
-            //__delay_cycles(70000);
-            //__delay_cycles(59650);
 
-#if 0
-            setAddr(84 - (1 * 6), i);
-            if(crc_good)
-              writeStringToLCD("+");
-            else
-              writeStringToLCD("-");
-/*          if(((rxbuffer[checksum_idx-1]) == (i2h(checksum >> 4)))
-        && ((rxbuffer[checksum_idx]) == (i2h(checksum & 0x0F))))
-          writeStringToLCD(" OK");
-        else
-          writeStringToLCD("BAD");*/
-#else
-            setAddr(84 - (8 * 6), i);
-            writeCharToLCD(i2h(bitTrack >> 4));
-            writeCharToLCD(i2h(bitTrack & 0x0F));
-//            writeCharToLCD(i2h(frame_type));
-//            writeCharToLCD(' ');
-            writeCharToLCD(rxbuffer[checksum_idx-1]);
-            writeCharToLCD(rxbuffer[checksum_idx]);
-            if(checksum == rx_crc)
-              writeStringToLCD("=");
-            else
-              writeStringToLCD("!");
-            if(crc_good)
-              writeStringToLCD("=");
-            else
-              writeStringToLCD("!");
-            writeCharToLCD(i2h(checksum >> 4));
-            writeCharToLCD(i2h(checksum & 0x0F));
-#endif
             ++i;
-            if(i>2)
+            if(i>1)
               i = 0;
             break;
           }
           crc_good = FALSE;
         }
-
-//        for(i = 16; i > 0; --i)
-//          __delay_cycles(20000000);
-
-//        __bis_SR_register(LPM3_bits + GIE);
-//        putstring("loop");
-
+        __bis_SR_register(LPM3_bits + GIE); // Enter LPM3
     } // eof while()
 } // eof main

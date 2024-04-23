@@ -24,6 +24,9 @@
 #define PCD8544_SETBIAS 0x10
 #define PCD8544_SETVOP 0x80
 
+#define LCD_MAX_X     84
+#define LCD_MAX_Y     48
+
 static const char font[][5] = { // basic font
 {0x00, 0x00, 0x00, 0x00, 0x00} // 20
 ,{0x00, 0x00, 0x5f, 0x00, 0x00} // 21 !
@@ -131,7 +134,9 @@ void setAddr(unsigned char xAddr, unsigned char yAddr) {
 }
 
 void writeToLCD(unsigned char dataCommand, unsigned char data) {
+#ifndef SPI_MODE_4_WIRE
     LCD5110_SELECT;
+#endif /* SPI_MODE_4_WIRE */
 
     if(dataCommand) {
         LCD5110_SET_DATA;
@@ -141,20 +146,16 @@ void writeToLCD(unsigned char dataCommand, unsigned char data) {
 
     UCB0TXBUF = data;
     while(!(IFG2 & UCB0TXIFG));
+#ifndef SPI_MODE_4_WIRE
     LCD5110_DESELECT;
+#endif /* SPI_MODE_4_WIRE */
 }
 
 void initLCD() {
     int i;
     LCD5110_SET_COMMAND;
     for(i = 16; i > 0; --i)
-      __delay_cycles(30000);
-    LCD5110_RESET;
-    for(i = 16; i > 0; --i)
       __delay_cycles(100000);
-    LCD5110_DERESET;
-    for(i = 16; i > 0; --i)
-      __delay_cycles(30000);
 
     writeToLCD(LCD5110_COMMAND, PCD8544_FUNCTIONSET | PCD8544_EXTENDEDINSTRUCTION);
     writeToLCD(LCD5110_COMMAND, PCD8544_SETVOP | 0x3F);
@@ -170,6 +171,33 @@ void writeCharToLCD(char c) {
         writeToLCD(LCD5110_DATA, font[c - 0x20][i]);
     }
     writeToLCD(LCD5110_DATA, 0);
+}
+
+void writeDecToLCD(uint16_t i) {
+    if(i < 10)
+      writeCharToLCD(i2h(i));
+    else {
+      writeDecToLCD(i/10);
+      writeCharToLCD(i2h(i%10));
+    }
+}
+
+void writeQ88ToLCD(uint16_t i) {
+  writeDecToLCD(i/256);
+  writeCharToLCD('.');
+  i &= 0x00FF;
+  i *= 100;
+  i >>= 8;
+  if(i < 10)
+  writeCharToLCD('0');
+  writeDecToLCD(i);
+}
+
+void writeHexToLCD(uint16_t i) {
+  writeCharToLCD(i2h(i>>12));
+  writeCharToLCD(i2h(i>>8));
+  writeCharToLCD(i2h(i>>4));
+  writeCharToLCD(i2h(i));
 }
 
 void writeStringToLCD(const char *string) {
@@ -188,6 +216,15 @@ void clearLCD() {
     setAddr(0, 0);
 }
 
+void pixel(uint8_t x, uint8_t y) {
+  uint8_t row = y / 8;
+  if(row > (LCD_MAX_Y/8))
+    return;
+  uint8_t line = 1 << (y%8);
+  setAddr(x, row);
+  writeToLCD(LCD5110_DATA, line);
+};
+
 void clearBank(unsigned char bank) {
     setAddr(0, bank);
     int i = 0;
@@ -197,13 +234,15 @@ void clearBank(unsigned char bank) {
     }
     setAddr(0, bank);
 }
+static const char hexnum[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
 
 char i2h(uint8_t i) {
-  if(i < 10)
-    return '0' + i;
-  else
-    if (i < 16) {
-      return 'A' + i - 10;
-    }
-  return '?';
+  return hexnum[i&0x0F];
+//  if(i < 10)
+//    return '0' + i;
+//  else
+//    if (i < 16) {
+//      return 'A' + i - 10;
+//    }
+//  return '?';
 };

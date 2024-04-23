@@ -36,15 +36,26 @@ void initUART(void)
 {
 	  P1SEL = BIT1 + BIT2 ;                     // P1.1 = RXD, P1.2=TXD
 	  P1SEL2 = BIT1 + BIT2 ;                     // P1.1 = RXD, P1.2=TXD
+
 	  UCA0CTL1 |= UCSSEL_2;                     // SMCLK
-		UCA0BR0 = 0x0C;                            // 16MHz 4800
-	  UCA0BR1 = 0x0D;                            // 16MHz 4800
-	  UCA0MCTL = UCBRS0;                        // Modulation UCBRSx = 1
+
+// oversampling UCSO = 1
+#if 0
+		UCA0MCTL = UCOS16 | UCBRF_6;                // Modulation UCBRFx = 6
+		// 16M/4800/16 = 208 1/3 = 0x00D0 +
+		UCA0BR0 = 0xD0;                            // 208
+		UCA0BR1 = 0x00;                            // 16MHz 4800
+#else // oversampling UCSO = 0
+// 16M/4800 = 3333 1/3 = 0x0D05
+		UCA0MCTL = UCBRS0;                        // Modulation UCBRSx = 1
+		UCA0BR0 = 0x05;                            // 16MHz 4800
+		UCA0BR1 = 0x0D;                            // 16MHz 4800
+#endif
 	  UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
-//		IFG2 &= ~(UCA0TXIFG | UCA0RXIFG);
 	  IE2 |= UCA0RXIE;                          // Enable USCI_A0 RX interrupt
-//		__enable_interrupt();
-	  __bis_SR_register(GIE);       // Enter LPM0, interrupts enabled
+
+		// enable it after all init's are finished
+	  //__bis_SR_register(GIE);       // Enter LPM0, interrupts enabled
 }
 
 void sendchar(uint8_t data){
@@ -84,9 +95,10 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		}
 
 		if(RXbyte == 10) {
-			bitTrack = 0xFF; // special value
+			//bitTrack = 0xFF; // special value
 			++msg_count;
 			new_frame = TRUE;
+			__bic_SR_register_on_exit(LPM3_bits); // Clear LPM3 bits from O(SR)
 			return;
 		}
 
@@ -159,21 +171,20 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 
 		rxbuffer[bitTrack] = RXbyte;
 
-		bitTrack++;
-		bitTrack &= 0x7F; // 128 bytes buffer
-		//if(bitTrack>85)
-		// 	bitTrack = 85; // 128 bytes buffer
-	//	if((RXbyte == '\r') || (RXbyte == '\n')) {
-
 		if(bitTrack == checksum_idx) {
-	//		new_frame = TRUE;
-			//if(checksum == (((16 * h2i(rxbuffer[checksum_idx-1])) + h2i(rxbuffer[checksum_idx]))))
-			if((i2h(checksum >> 4) == rxbuffer[checksum_idx-1])
-			&& (i2h(checksum & 0x0F) == rxbuffer[checksum_idx]))
+			//if((i2h(checksum >> 4) == rxbuffer[checksum_idx-1])
+			//&& (i2h(checksum & 0x0F) == rxbuffer[checksum_idx]))
+			if(checksum == ((16 * h2i(rxbuffer[bitTrack-1])) + h2i(RXbyte)))
 				crc_good = TRUE;
 			else
 				crc_good = FALSE;
 		}
-		//__bis_SR_register_on_exit(LPM3_bits);
+
+		bitTrack++;
+		bitTrack &= 0x7F; // 128 bytes buffer
+		//if(bitTrack>85)
+		// 	bitTrack = 85; // 128 bytes buffer
+
+		//__bic_SR_register_on_exit(LPM3_bits);
 	}
 }
