@@ -10,18 +10,18 @@
 //         NOKIA 5110 LCD                                               MSP-EXP430G2
 //       -----------------                                           -------------------
 //      |              GND|<-- Ground ------------------------------|J6     GND         |
-//      |               BL|<-- Back-light (not connected)
+//      |               BL|<-- Back-light --------------------------|J2.12  P2.4        |
 //      |              VCC|<-- Vcc +3..5V --------------------------|J1.1   VCC         |
-//      |                 |
+//      |                 |                                         |                   |
 //      |              CLC|<-- Clock -------------------------------|J1.7   P1.5        |
 //      |              DIN|<-- Data Input --------------------------|J2.15  P1.7        |
-//      |               DC|<-- Data/Command (high/low) -------------|J2.13  P2.5        |
-//      |               CE|<-- Chip Enable (active low) ------------|J1.8   P2.0        |
-//      |              RST|<-- Reset -------------------------------|J2.16  RST         |
+//      |               DC|<-- Data/Command (high/low) -------------|J2.11  P2.3        |
+//      |               CE|<-- Chip Enable (active low) ------------|J1.6   P1.4        |
+//      |              RST|<-- Reset - RC                           |                   |
 //       -----------------                                          |                   |
 //                                                                  |                   |
 //                                                                  |                   |
-//                                                                  |J                  |
+//                                                                  |                   |
 //
 //  This example is based on the RobG's example : http://forum.43oh.com/topic/1312-nokia-5110-display
 //  Changes:
@@ -77,8 +77,8 @@ uint16_t ocxo_temperature, adc_val;
 
 void initCPU(void){
 	  //WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
-    //WDTCTL = WDT_XDLY_6_4;
-    WDTCTL = WDT_XDLY_51;
+    WDTCTL = WDT_XDLY_6_4;
+    //WDTCTL = WDT_XDLY_51;
     //WDTCTL = WDT_MDLY_0_5;                    //equivalent to half millisecond
     IE1 |= WDTIE;                             // Enable WDT interrupt}
 
@@ -94,28 +94,28 @@ void initSPI(void) {
 
   P2OUT |= LCD5110_DC_PIN | LCD5110_BL_PIN;  // Disable LCD, set Data mode
   P2DIR |= LCD5110_DC_PIN | LCD5110_BL_PIN;  // Set pins to output direction
-#ifndef SPI_MODE_4_WIRE
+
   P1OUT |= LCD5110_SCE_PIN;  // Disable LCD, set Data mode
   P1DIR |= LCD5110_SCE_PIN;  // Set pins to output direction
-#endif /* SPI_MODE_4_WIRE */
 
   // Setup USIB
-#ifdef SPI_MODE_4_WIRE
-  P1DIR |= LCD5110_SCE_PIN;  // Set pins to output direction
-  P1SEL |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
-  P1SEL2 |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
-  UCB0CTL0 |= UCCKPH | UCMSB | UCMST | UCMODE_2 | UCSYNC; // 4-pin, 8-bit SPI master
-#else
   P1SEL |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
   P1SEL2 |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
   UCB0CTL0 |= UCCKPH | UCMSB | UCMST | UCSYNC; // 3-pin, 8-bit SPI master
-#endif /* SPI_MODE_4_WIRE */
 
   UCB0CTL1 |= UCSSEL_2;               // SMCLK
   UCB0BR0 |= 0x01;                    // 1:1
   UCB0BR1 = 0;
   UCB0CTL1 &= ~UCSWRST;               // clear SW
 }
+
+extern uint16_t* adc_values;
+extern uint16_t adc_value;
+extern uint16_t pd_value;
+extern uint16_t* int_temp_sensor_values;
+extern uint16_t int_temp_sensor_value;
+extern uint16_t* frame_counter;
+extern uint16_t bad_crc_counter;
 
 int main(void) {
 
@@ -205,17 +205,53 @@ int main(void) {
         }
         setAddr(0, 0);
         clearBank(0);
-        ocxo_temperature = getTemperature();
-        writeQ88ToLCD(ocxo_temperature);
+        writeQ88ToLCD(getOCXOTemperature());
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
+
+        setAddr(0, 1);
+        writeQ88ToLCD(getIntTemperature());
+        //writeHexToLCD(getIntTemperature());
+        writeCharToLCD(0x7F);
+        writeCharToLCD('C');
+        //writeCharToLCD('V');
+
+        setAddr(0, 2);
+        clearBank(2);
+        writeQ4CToLCD(getPhaseDet());
+        writeStringToLCD("V ");
+        //writeHexToLCD(pd_value);
+        //writeDecToLCD(pd_value);
+        setAddr(0, 3);
+        bargraph(3, pd_value/194);
+        //writeHexToLCD(TA1R);
+
+        setAddr(54, 0);
+        writeDecToLCD(bad_crc_counter);
+
         setAddr(54, 4);
         writeDecToLCD(getSeconds());
         writeCharToLCD('s');
 
-        pixel(k, 8 * 4 - (ocxo_temperature >> 9));
-        ++k;
-        k %= 84;
+//        clearBank(1);
+//        setAddr(0, 1);
+//        writeDecToLCD(getOCXO());
+
+/*        clearBank(2);
+        setAddr(0, 2);
+        writeHexToLCD(adc_value);
+        writeHexToLCD(adc_values[0]);
+        writeHexToLCD(adc_values[1]);
+        clearBank(3);
+        setAddr(0, 3);
+        writeHexToLCD(adc_values[2]);
+        writeHexToLCD(adc_values[3]);
+        writeHexToLCD(adc_values[4]);
+        //writeDecToLCD(getCAP());*/
+
+        //pixel(k, 8 * 4 - (ocxo_temperature >> 9));
+        //++k;
+        //k %= 84;
 
         switch(frame_type) {
           case RMC:
@@ -285,10 +321,10 @@ int main(void) {
 //                writeCharToLCD(rxbuffer[c]);
             break;
           default:
-            clearBank(i);
-            setAddr(0, i);
-            for(c = 2; c < 6; c++)
-              writeCharToLCD(rxbuffer[c]);
+//            clearBank(i);
+//            setAddr(0, i);
+//            for(c = 2; c < 6; c++)
+//              writeCharToLCD(rxbuffer[c]);
 
             ++i;
             if(i>1)
@@ -297,6 +333,6 @@ int main(void) {
           }
           crc_good = FALSE;
         }
-        __bis_SR_register(LPM3_bits + GIE); // Enter LPM3
+        __bis_SR_register(LPM1_bits + GIE); // Enter LPM3
     } // eof while()
 } // eof main

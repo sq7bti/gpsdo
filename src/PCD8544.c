@@ -134,9 +134,7 @@ void setAddr(unsigned char xAddr, unsigned char yAddr) {
 }
 
 void writeToLCD(unsigned char dataCommand, unsigned char data) {
-#ifndef SPI_MODE_4_WIRE
     LCD5110_SELECT;
-#endif /* SPI_MODE_4_WIRE */
 
     if(dataCommand) {
         LCD5110_SET_DATA;
@@ -146,9 +144,8 @@ void writeToLCD(unsigned char dataCommand, unsigned char data) {
 
     UCB0TXBUF = data;
     while(!(IFG2 & UCB0TXIFG));
-#ifndef SPI_MODE_4_WIRE
+
     LCD5110_DESELECT;
-#endif /* SPI_MODE_4_WIRE */
 }
 
 void initLCD() {
@@ -173,7 +170,7 @@ void writeCharToLCD(char c) {
     writeToLCD(LCD5110_DATA, 0);
 }
 
-void writeDecToLCD(uint16_t i) {
+void writeDecToLCD(uint32_t i) {
     if(i < 10)
       writeCharToLCD(i2h(i));
     else {
@@ -183,14 +180,31 @@ void writeDecToLCD(uint16_t i) {
 }
 
 void writeQ88ToLCD(uint16_t i) {
-  writeDecToLCD(i/256);
+  writeDecToLCD(i>>8);
   writeCharToLCD('.');
   i &= 0x00FF;
-  i *= 100;
-  i >>= 8;
-  if(i < 10)
-  writeCharToLCD('0');
-  writeDecToLCD(i);
+  i *= 10;
+  writeDecToLCD((i&0xFF00)>>8);
+  i &= 0x00FF;
+  i *= 10;
+  writeDecToLCD((i&0xFF00)>>8);
+  i &= 0x00FF;
+  i *= 10;
+  writeDecToLCD((i&0xFF00)>>8);
+}
+
+void writeQ4CToLCD(uint16_t i) {
+  writeDecToLCD(i>>12);
+  writeCharToLCD('.');
+  i &= 0x0FFF;
+  i *= 10;
+  writeDecToLCD((i&0xF000)>>12);
+  i &= 0x0FFF;
+  i *= 10;
+  writeDecToLCD((i&0xF000)>>12);
+  i &= 0x0FFF;
+  i *= 10;
+  writeDecToLCD((i&0xF000)>>12);
 }
 
 void writeHexToLCD(uint16_t i) {
@@ -245,4 +259,17 @@ char i2h(uint8_t i) {
 //      return 'A' + i - 10;
 //    }
 //  return '?';
+};
+
+void bargraph(uint8_t row, uint16_t val) {
+  if(row > (LCD_MAX_Y/8))
+    return;
+  uint8_t x = 0;
+  setAddr(x, row);
+  writeToLCD(LCD5110_DATA, 0xFF);
+  while(++x < LCD_MAX_X-1) {
+    setAddr(x, row);
+    writeToLCD(LCD5110_DATA, (x<val)?0xFF:0x81);
+  }
+  writeToLCD(LCD5110_DATA, 0xFF);
 };

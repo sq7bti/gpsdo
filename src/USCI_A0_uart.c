@@ -16,6 +16,10 @@ volatile uint8_t crc, checksum, rx_checksum, msg_count;
 volatile uint8_t checksum_idx;
 volatile enum frame frame_type;
 volatile bool new_frame, crc_good;
+//                 0    1    2    3    4    5
+//                                  { UNKNOWN, RMC, VTG, GGA, GSA, GSV };
+volatile uint16_t frame_counter[] = {       0,   0,   0,   0,   0,   0 };
+volatile uint16_t bad_crc_counter = 0;
 
 volatile uint8_t rxbuffer[128];		//serial buffer, simple linear until break character /r
 
@@ -98,6 +102,9 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			//bitTrack = 0xFF; // special value
 			++msg_count;
 			new_frame = TRUE;
+			++frame_counter[frame_type];
+			if(!crc_good)
+				++bad_crc_counter;
 			__bic_SR_register_on_exit(LPM3_bits); // Clear LPM3 bits from O(SR)
 			return;
 		}
