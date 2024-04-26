@@ -1,32 +1,32 @@
 #include "adc.h"
 
 // Q8.8
-volatile uint16_t adc_value = 0;
-volatile uint16_t adc_values[16];
-volatile uint16_t pd_value = 0;
-volatile uint16_t pd_values[16];
+volatile uint16_t ocxo_temp_raw_value = 0;
+volatile uint16_t ocxo_temp_raw_values[16];
+volatile uint16_t phase_comp_raw_value = 0;
+volatile uint16_t phase_comp_raw_values[16];
 volatile uint16_t int_temp_sensor_value = 0;
 volatile uint16_t int_temp_sensor_values[16];
 
 uint16_t getOCXOTemperature() {
-  return ((uint32_t)adc_value * 0x0180 * 100) >> 14;
+  return ((uint32_t)ocxo_temp_raw_value * 0x0018 * 100) >> 10;
 };
 
 uint16_t getIntTemperature() {
   //uint16_t temp_rec = ((uint32_t)n_scaled - 252) * 282;
   //uint16_t temp_rec = (((uint32_t)n_scaled - 252) * 9014) >> 5;
-  //                          Q4.12            252.416 << 4    281.69 << 4
-  uint16_t t_scaled = ((uint32_t)int_temp_sensor_value * 0x0018) >> 6;
-  return (((uint32_t)t_scaled  -    4039)      *    4507)     >> 8;
+  //        Q20.12            252.416 << 4    281.69 << 4
+  uint32_t t_scaled = ((uint32_t)int_temp_sensor_value * 0x0018) >> 8;
+  return ((t_scaled  -    4039)      *    4507)     >> 8;
 };
 
-uint16_t getPhaseDet() { // 3.5V in Q8.8
-  return ((uint32_t)pd_value * 0x0397) >> 10;
+uint16_t getPhaseDet() { // Vcc 3.59V in Q8.8
+  return ((uint32_t)phase_comp_raw_value * 0x0397) >> 10;
 };
 
 void initADC() {
   // ADC10
-  P1SEL |= BIT3 | BIT6;
+  P1SEL |= BIT3 | BIT4;
 
   ADC10CTL1 &= ~ENC;
   ADC10CTL1 |= ADC10DIV_3 | INCH_3;
@@ -39,10 +39,10 @@ void initADC() {
 // ADC interrupt enable
   ADC10CTL0 = SREF_1 | ADC10SHT_3 | MSC | REFON | ADC10IE;
 
-  ADC10AE0 |= BIT3 | BIT6;           // ADC input enable P1.3 and P1.6
+  ADC10AE0 |= BIT3 | BIT4;           // ADC input enable P1.3 and P1.4
 
   ADC10DTC1 = 16;             // 16 conversions
-  ADC10SA = (uint16_t)adc_values;
+  ADC10SA = (uint16_t)ocxo_temp_raw_values;
 };
 
 // ADC10 interrupt service routine
@@ -58,33 +58,47 @@ void __attribute__ ((interrupt(ADC10_VECTOR))) ADC10_ISR (void)
   switch(ADC10CTL1 & INCH_15) {
     case INCH_3:
       ADC10CTL0 &= ~ENC;
-      adc_value = 0;
-      for(int i = 0; i < 16; ++i)
-        adc_value += adc_values[i];
+      if(!ocxo_temp_raw_value) {
+        for(int i = 0; i < 16; ++i)
+          ocxo_temp_raw_value += ocxo_temp_raw_values[i];
+        //ocxo_temp_raw_value <<= 4;
+        } else {
+          //ocxo_temp_raw_value -= ocxo_temp_raw_value >> 4;
+          ocxo_temp_raw_value = 0;
+          for(int i = 0; i < 16; ++i)
+            ocxo_temp_raw_value += ocxo_temp_raw_values[i];
+        }
       //__delay_cycles(128);
       ADC10CTL0 = SREF_0 | ADC10SHT_3 | MSC | ADC10IE;
-      ADC10CTL1 = ADC10DIV_3 | INCH_6;
-      ADC10SA = (uint16_t)pd_values;
+      ADC10CTL1 = ADC10DIV_3 | INCH_4;
+      ADC10SA = (uint16_t)phase_comp_raw_values;
     break;
-    case INCH_6:
+    case INCH_4:
       ADC10CTL0 &= ~ENC;
-      pd_value = 0;
+      phase_comp_raw_value = 0;
       for(int i = 0; i < 16; ++i)
-        pd_value += pd_values[i];
-      // output PD input on PWM output P2.5
-      TA1CCR2 = pd_value << 2;
+        phase_comp_raw_value += phase_comp_raw_values[i];
+      // output PD input on PWM output P1.4
+      TA0CCR1 = phase_comp_raw_value << 2;
       //__delay_cycles(128);
       ADC10CTL0 = SREF_1 | ADC10SHT_3 | MSC | REFON | ADC10IE;
       ADC10CTL1 = ADC10DIV_3 | INCH_10;
       ADC10SA = (uint16_t)int_temp_sensor_values;
     break;
     case INCH_10:
-      int_temp_sensor_value = 0;
-      for(int i = 0; i < 16; ++i)
-        int_temp_sensor_value += int_temp_sensor_values[i];
+      if(!int_temp_sensor_value) {
+        for(int i = 0; i < 16; ++i)
+          int_temp_sensor_value += int_temp_sensor_values[i];
+        int_temp_sensor_value <<= 2;
+      } else {
+        int_temp_sensor_value -= int_temp_sensor_value >> 2;
+        //int_temp_sensor_value = 0;
+        for(int i = 0; i < 16; ++i)
+          int_temp_sensor_value += int_temp_sensor_values[i];
+      }
       ADC10CTL0 = SREF_1 | ADC10SHT_3 | MSC | REFON | ADC10IE;
       ADC10CTL1 = ADC10DIV_3 | INCH_3;
-      ADC10SA = (uint16_t)adc_values;
+      ADC10SA = (uint16_t)ocxo_temp_raw_values;
     break;
   }
 

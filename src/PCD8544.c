@@ -180,6 +180,7 @@ void writeDecToLCD(uint32_t i) {
 }
 
 void writeQ88ToLCD(uint16_t i) {
+  uint8_t decimal_places = ((i>>8)>9)?2:3;
   writeDecToLCD(i>>8);
   writeCharToLCD('.');
   i &= 0x00FF;
@@ -188,12 +189,15 @@ void writeQ88ToLCD(uint16_t i) {
   i &= 0x00FF;
   i *= 10;
   writeDecToLCD((i&0xFF00)>>8);
-  i &= 0x00FF;
-  i *= 10;
-  writeDecToLCD((i&0xFF00)>>8);
+  if(decimal_places > 2) {
+    i &= 0x00FF;
+    i *= 10;
+    writeDecToLCD((i&0xFF00)>>8);
+  }
 }
 
 void writeQ4CToLCD(uint16_t i) {
+  uint8_t decimal_places = ((i>>12)>9)?2:3;
   writeDecToLCD(i>>12);
   writeCharToLCD('.');
   i &= 0x0FFF;
@@ -202,16 +206,21 @@ void writeQ4CToLCD(uint16_t i) {
   i &= 0x0FFF;
   i *= 10;
   writeDecToLCD((i&0xF000)>>12);
-  i &= 0x0FFF;
-  i *= 10;
-  writeDecToLCD((i&0xF000)>>12);
+  if(decimal_places > 2) {
+    i &= 0x0FFF;
+    i *= 10;
+    writeDecToLCD((i&0xF000)>>12);
+  }
 }
 
-void writeHexToLCD(uint16_t i) {
-  writeCharToLCD(i2h(i>>12));
-  writeCharToLCD(i2h(i>>8));
+void writeByteToLCD(uint8_t i) {
   writeCharToLCD(i2h(i>>4));
   writeCharToLCD(i2h(i));
+}
+
+void writeWordToLCD(uint16_t i) {
+  writeByteToLCD(i>>8);
+  writeByteToLCD(i&0x00FF);
 }
 
 void writeStringToLCD(const char *string) {

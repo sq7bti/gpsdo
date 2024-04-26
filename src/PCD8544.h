@@ -4,13 +4,9 @@
 #define LCD5110_SCLK_PIN            BIT5
 #define LCD5110_DN_PIN              BIT7
 
-#define LCD5110_BL_PIN              BIT4
-#define LCD5110_BL_ON               P2OUT &= ~LCD5110_BL_PIN
-#define LCD5110_BL_OFF              P2OUT |= LCD5110_BL_PIN
-
-#define LCD5110_SCE_PIN             BIT4
-#define LCD5110_SELECT              P1OUT &= ~LCD5110_SCE_PIN
-#define LCD5110_DESELECT            P1OUT |= LCD5110_SCE_PIN
+#define LCD5110_SCE_PIN             BIT7
+#define LCD5110_SELECT              P2OUT &= ~LCD5110_SCE_PIN
+#define LCD5110_DESELECT            P2OUT |= LCD5110_SCE_PIN
 
 #define LCD5110_DC_PIN              BIT3
 #define LCD5110_SET_COMMAND         P2OUT &= ~LCD5110_DC_PIN
@@ -28,7 +24,8 @@ void writeStringToLCD(const char *string);
 void writeDecToLCD(uint32_t i);
 void writeQ88ToLCD(uint16_t i);
 void writeQ4CToLCD(uint16_t i);
-void writeHexToLCD(uint16_t i);
+void writeByteToLCD(uint8_t i);
+void writeWordToLCD(uint16_t i);
 void initLCD();
 void clearLCD();
 void clearBank(unsigned char bank);

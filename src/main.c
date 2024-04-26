@@ -10,16 +10,37 @@
 //         NOKIA 5110 LCD                                               MSP-EXP430G2
 //       -----------------                                           -------------------
 //      |              GND|<-- Ground ------------------------------|J6     GND         |
-//      |               BL|<-- Back-light --------------------------|J2.12  P2.4        |
-//      |              VCC|<-- Vcc +3..5V --------------------------|J1.1   VCC         |
+//      |               BL|<-- Back-light - tie to ground via res   |                   |
+//      |              VCC|<-- Vcc +3..5V --------------------------|1      VCC         |
 //      |                 |                                         |                   |
-//      |              CLC|<-- Clock -------------------------------|J1.7   P1.5        |
-//      |              DIN|<-- Data Input --------------------------|J2.15  P1.7        |
-//      |               DC|<-- Data/Command (high/low) -------------|J2.11  P2.3        |
-//      |               CE|<-- Chip Enable (active low) ------------|J1.6   P1.4        |
+//      |              CLC|<-- Clock -------------------------------|7      P1.5        |
+//      |              DIN|<-- Data Input --------------------------|15     P1.7        |
+//      |               DC|<-- Data/Command (high/low) -------------|11     P2.3        |
+//      |               CE|<-- Chip Enable (active low) ------------|18     P2.7  XOUT  |
 //      |              RST|<-- Reset - RC                           |                   |
 //       -----------------                                          |                   |
 //                                                                  |                   |
+//              GPS                                                 |                   |
+//       -----------------                                          |                   |
+//      |              TX |<-- NMEA output -------------------------|3      P1.1        |
+//      |              RX |<-- NMEA input --------------------------|4      P1.2        |
+//      |           10kHz |<-- GPS reference signal--------+--------|19     P2.6 XIN    |
+//      |                 |                                \--------|9      P2.1        |
+//      |             PPS |<-- NMEA input --------------------------|Jx.x   Px.x        |
+//       -----------------                                          |                   |
+//                                                                  |                   |
+//              OCXO                                                |                   |
+//       -----------------                                          |                   |
+//      |           10MHz |<-- VCO output --------------------------|2      P1.0        |
+//      |           10kHz |<-- VCO output divided % 1000 -----------|12     P2.4        |
+//      |            Vref |<-- VCO input ---------------------o<|---|14     P1.6 (neg)  |
+//      |            LM35 |<-- temperature -------------------------|5      P1.3        |
+//       -----------------                                          |                   |
+//                                                                  |                   |
+//              4046                                                |                   |
+//       -----------------                                          |                   |
+//      |              PC |<-- Phase comparator output -------------|6      P1.4        |
+//       -----------------                                          |                   |
 //                                                                  |                   |
 //                                                                  |                   |
 //
@@ -92,11 +113,13 @@ void initCPU(void){
 
 void initSPI(void) {
 
-  P2OUT |= LCD5110_DC_PIN | LCD5110_BL_PIN;  // Disable LCD, set Data mode
-  P2DIR |= LCD5110_DC_PIN | LCD5110_BL_PIN;  // Set pins to output direction
+  P2OUT |= LCD5110_DC_PIN;  // Disable LCD, set Data mode
+  P2DIR |= LCD5110_DC_PIN;  // Set pins to output direction
 
-  P1OUT |= LCD5110_SCE_PIN;  // Disable LCD, set Data mode
-  P1DIR |= LCD5110_SCE_PIN;  // Set pins to output direction
+  P2OUT |= LCD5110_SCE_PIN;  // Disable LCD, set Data mode
+  P2DIR |= LCD5110_SCE_PIN;  // Set pins to output direction
+  P2SEL &= ~LCD5110_SCE_PIN;  // Set pins to output direction
+  P2SEL2 &= ~LCD5110_SCE_PIN;  // Set pins to output direction
 
   // Setup USIB
   P1SEL |= LCD5110_SCLK_PIN | LCD5110_DN_PIN; // | LCD5110_SCE_PIN;
@@ -109,13 +132,16 @@ void initSPI(void) {
   UCB0CTL1 &= ~UCSWRST;               // clear SW
 }
 
-extern uint16_t* adc_values;
-extern uint16_t adc_value;
-extern uint16_t pd_value;
+extern uint16_t* ocxo_temp_raw_values;
+extern uint16_t ocxo_temp_raw_value;
+extern uint16_t phase_comp_raw_value;
 extern uint16_t* int_temp_sensor_values;
 extern uint16_t int_temp_sensor_value;
-extern uint16_t* frame_counter;
-extern uint16_t bad_crc_counter;
+extern uint16_t frame_counter[];
+extern uint16_t bad_crc_counter, chars_count;
+
+extern uint16_t period_ref;
+extern uint16_t period_vco;
 
 int main(void) {
 
@@ -159,7 +185,6 @@ int main(void) {
     }
     for(i = 16; i > 0; --i)
       __delay_cycles(2000000);
-    LCD5110_BL_ON;
 
     i = 0;
 
@@ -194,7 +219,7 @@ int main(void) {
         //clearLCD();
         //setAddr(0, 0);
 
-      if(new_frame && crc_good) {
+      if(new_frame) { //} && crc_good) {
         new_frame = FALSE;
         setAddr(84 - 6, 5);
         switch(msg_count % 4) {
@@ -203,35 +228,83 @@ int main(void) {
           case 2: writeCharToLCD('|'); break;
           case 3: writeCharToLCD('\\'); break;
         }
+
         setAddr(0, 0);
         clearBank(0);
         writeQ88ToLCD(getOCXOTemperature());
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
 
-        setAddr(0, 1);
+        //setAddr(0, 1);
+        //writeCharToLCD(' ');
         writeQ88ToLCD(getIntTemperature());
-        //writeHexToLCD(getIntTemperature());
+        //writeWordToLCD(getIntTemperature());
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
         //writeCharToLCD('V');
+        //writeCharToLCD(' ');
+        //writeWordToLCD(int_temp_sensor_value);
 
+        setAddr(0, 1);
+        clearBank(1);
+        writeWordToLCD(phase_comp_raw_value);
+        writeCharToLCD('=');
+        writeQ4CToLCD(getPhaseDet());
+        writeCharToLCD('V');
+        //writeWordToLCD(phase_comp_raw_value);
+        //writeDecToLCD(phase_comp_raw_value);
+        //setAddr(0, 3);
+        //bargraph(3, phase_comp_raw_value/194);
+        //writeWordToLCD(TA1R);
+
+/*        setAddr(0,0);
+        clearBank(0);
+        writeDecToLCD(period_ref);
+        setAddr(0,1);
+        clearBank(1);
+        writeDecToLCD(period_vco);
+*/
+
+        setAddr(0,2);
+        clearBank(2);
+        writeWordToLCD(TA1R);
+        writeCharToLCD(' ');
+        setAddr(0,3);
+        clearBank(3);
+        //writeWordToLCD(TA1CCR1);
+        writeDecToLCD(period_ref);
+        writeCharToLCD(' ');
+        //writeWordToLCD(TA1CCR2);
+        writeDecToLCD(period_vco);
+
+/*        setAddr(0, 0);
+        clearBank(0);
+        writeStringToLCD("UNK");
+        writeDecToLCD(frame_counter[0]);
+        writeStringToLCD("RMC");
+        writeDecToLCD(frame_counter[1]);
+        setAddr(0, 1);
+        clearBank(1);
+        writeStringToLCD("VTG");
+        writeDecToLCD(frame_counter[2]);
+        writeStringToLCD("GGA");
+        writeDecToLCD(frame_counter[3]);
         setAddr(0, 2);
         clearBank(2);
-        writeQ4CToLCD(getPhaseDet());
-        writeStringToLCD("V ");
-        //writeHexToLCD(pd_value);
-        //writeDecToLCD(pd_value);
+        writeStringToLCD("GSA");
+        writeDecToLCD(frame_counter[4]);
+        writeStringToLCD("GSV");
+        writeDecToLCD(frame_counter[5]);
+
         setAddr(0, 3);
-        bargraph(3, pd_value/194);
-        //writeHexToLCD(TA1R);
+        clearBank(3);
+        writeStringToLCD("BAD");
+        writeDecToLCD(bad_crc_counter);*/
 
-        setAddr(54, 0);
-        writeDecToLCD(bad_crc_counter);
-
-        setAddr(54, 4);
-        writeDecToLCD(getSeconds());
-        writeCharToLCD('s');
+        //setAddr(54, 4);
+        //writeDecToLCD(getSeconds());
+        //writeCharToLCD('s');
+        //writeDecToLCD(chars_count);
 
 //        clearBank(1);
 //        setAddr(0, 1);
@@ -239,14 +312,14 @@ int main(void) {
 
 /*        clearBank(2);
         setAddr(0, 2);
-        writeHexToLCD(adc_value);
-        writeHexToLCD(adc_values[0]);
-        writeHexToLCD(adc_values[1]);
+        writeHexToLCD(ocxo_temp_raw_value);
+        writeHexToLCD(ocxo_temp_raw_values[0]);
+        writeHexToLCD(ocxo_temp_raw_values[1]);
         clearBank(3);
         setAddr(0, 3);
-        writeHexToLCD(adc_values[2]);
-        writeHexToLCD(adc_values[3]);
-        writeHexToLCD(adc_values[4]);
+        writeHexToLCD(ocxo_temp_raw_values[2]);
+        writeHexToLCD(ocxo_temp_raw_values[3]);
+        writeHexToLCD(ocxo_temp_raw_values[4]);
         //writeDecToLCD(getCAP());*/
 
         //pixel(k, 8 * 4 - (ocxo_temperature >> 9));
@@ -304,30 +377,35 @@ int main(void) {
           break;
         }
 //        if((frame_type == RMC) || ((frame_type == GSV) && (rxbuffer[8] == '1'))) {
-//        if(frame_type == RMC) {
-//          for(i; i; --i)
-//            clearBank(i);
-//          i = 0;
-//        }
+        if(frame_type == GGA) {
+          for(i; i; --i)
+            clearBank(i);
+          i = 0;
+        }
         switch(frame_type) {
           case RMC:
           case GGA:
           case GSA:
           case GSV:
           case VTG:
-          //case UNKNOWN:
+          case UNKNOWN:
 //              lock_status = rxbuffer[NMEA_RMC_LOCK];
 //              for(c = NMEA_RMC_TIM; c < NMEA_RMC_TIM + 6; c++)
 //                writeCharToLCD(rxbuffer[c]);
             break;
           default:
-//            clearBank(i);
-//            setAddr(0, i);
-//            for(c = 2; c < 6; c++)
-//              writeCharToLCD(rxbuffer[c]);
+            clearBank(i);
+            setAddr(0, i);
+            for(c = 2; c < 8; c++)
+              writeCharToLCD(rxbuffer[c]);
+            setAddr(84 - (5*6), i);
+            writeByteToLCD(checksum);
+            writeCharToLCD(crc_good?'=':'x');
+            writeCharToLCD(rxbuffer[checksum_idx-1]);
+            writeCharToLCD(rxbuffer[checksum_idx]);
 
             ++i;
-            if(i>1)
+            if(i>3)
               i = 0;
             break;
           }

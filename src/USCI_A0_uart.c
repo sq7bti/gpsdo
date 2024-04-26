@@ -19,7 +19,7 @@ volatile bool new_frame, crc_good;
 //                 0    1    2    3    4    5
 //                                  { UNKNOWN, RMC, VTG, GGA, GSA, GSV };
 volatile uint16_t frame_counter[] = {       0,   0,   0,   0,   0,   0 };
-volatile uint16_t bad_crc_counter = 0;
+volatile uint16_t bad_crc_counter = 0, chars_count = 0;
 
 volatile uint8_t rxbuffer[128];		//serial buffer, simple linear until break character /r
 
@@ -91,10 +91,12 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 {
 	if(IFG2 & UCA0RXIFG) {
 		uint8_t RXbyte = UCA0RXBUF;
+		++chars_count;
 		if(RXbyte == '$') {
 			bitTrack = 0;
 			crc = 0;
 			frame_type = UNKNOWN;
+			checksum_idx = 255;
 			return;
 		}
 
@@ -120,7 +122,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		if((frame_type == UNKNOWN) && (bitTrack == 4)) {
 			switch(RXbyte) {
 				// GPGSA or GPGGA
-				case 'A': frame_type = (rxbuffer[3] == 'S')?GSA:GGA; break;
+				case 'A': frame_type = (rxbuffer[3] == 'S')?GSA:GGA; chars_count = 5; break;
 				// GPGSV
 				case 'V': frame_type = GSV; break;
 			}
@@ -179,9 +181,8 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		rxbuffer[bitTrack] = RXbyte;
 
 		if(bitTrack == checksum_idx) {
-			//if((i2h(checksum >> 4) == rxbuffer[checksum_idx-1])
-			//&& (i2h(checksum & 0x0F) == rxbuffer[checksum_idx]))
-			if(checksum == ((16 * h2i(rxbuffer[bitTrack-1])) + h2i(RXbyte)))
+			if((i2h(checksum >> 4) == rxbuffer[checksum_idx-1])
+			&& (i2h(checksum & 0x0F) == rxbuffer[checksum_idx]))
 				crc_good = TRUE;
 			else
 				crc_good = FALSE;

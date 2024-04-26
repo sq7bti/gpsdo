@@ -21,6 +21,7 @@ extern volatile uint8_t rxbuffer[];		//serial buffer, simple linear until break 
 extern volatile uint8_t bitTrack, msg_count;
 extern volatile uint8_t checksum, checksum_idx;
 extern volatile enum frame frame_type;
+//extern volatile uint16_t* frame_counter;
 extern volatile bool new_frame, crc_good;
 
 // NMEA fields:
