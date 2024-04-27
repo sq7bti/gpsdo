@@ -143,7 +143,7 @@ extern uint16_t bad_crc_counter, chars_count;
 extern uint16_t period_ref;
 extern uint16_t period_vco;
 
-extern int16_t phase_diff;
+extern int16_t phase_diff, phase_driftrate;
 uint16_t temp_phase_diff;
 
 int main(void) {
@@ -222,6 +222,17 @@ int main(void) {
         //clearLCD();
         //setAddr(0, 0);
 
+      setAddr(0, 2);
+      clearBank(2);
+      if(phase_driftrate != 0)
+        writeCharToLCD(phase_driftrate > 0?'+':'-');
+      else
+        writeCharToLCD(' ');
+      writeDecToLCD(abs(phase_driftrate));
+      writeCharToLCD(' ');
+      writeDecToLCD(period_ref);
+      writeCharToLCD(' ');
+      writeDecToLCD(period_vco);
       phase_difference(3, (phase_diff + 800) / 20);
 
       if(!getticks()) {
@@ -242,13 +253,16 @@ int main(void) {
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
 
-/*        setAddr(0, 1);
+        setAddr(0, 1);
         clearBank(1);
         writeWordToLCD(phase_comp_raw_value);
         writeCharToLCD('=');
+        setInverse(getPhaseDet() > 1<<12);
         writeQ4CToLCD(getPhaseDet());
+        setInverse(FALSE);
         writeCharToLCD('V');
-*/
+        //bargraph(2, phase_comp_raw_value/194);
+
 
 /*        setAddr(0,2);
         clearBank(2);

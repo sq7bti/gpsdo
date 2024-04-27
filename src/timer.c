@@ -15,6 +15,7 @@ volatile uint16_t period_vco = 0;
 // positive means VCO is ahead of GPS signal
 // negative means VCO is behind GPS signal
 volatile int16_t phase_diff = 0;
+volatile int16_t phase_driftrate = 0;
 
 uint32_t getMillis() { return millis/10; };
 uint32_t getSeconds() { return seconds; };
@@ -105,6 +106,8 @@ void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) Timer0_A1_iSR (void)
   //LPM0_EXIT;
 }
 
+volatile int16_t new_phase_diff;
+
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector=TIMER1_A1_VECTOR
 __interrupt void Timer1_A1_iSR(void)
@@ -123,8 +126,11 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       period_ref = current_rising_ref - previous_rising_ref;
       previous_rising_ref = current_rising_ref;
       // it means ref is delayed, vco was just captured
-      if(TA1CCTL2 & CCI)
-        phase_diff = current_rising_ref - current_rising_vco;
+      if(TA1CCTL2 & CCI) {
+        new_phase_diff = current_rising_ref - current_rising_vco;
+        phase_driftrate = new_phase_diff - phase_diff;
+        phase_diff = new_phase_diff;
+      }
       break;
     case TA1IV_TACCR2: // 0x04
       // rising edge of controlled signal from VCO
@@ -132,8 +138,11 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       period_vco = current_rising_vco - previous_rising_vco;
       previous_rising_vco = current_rising_vco;
       // it means vco is delayed, ref was just captured
-      if(TA1CCTL1 & CCI)
-        phase_diff = current_rising_ref - current_rising_vco;
+      if(TA1CCTL1 & CCI) {
+        new_phase_diff = current_rising_ref - current_rising_vco;
+        phase_driftrate = new_phase_diff - phase_diff;
+        phase_diff = new_phase_diff;
+      }
       break;
     case TA1IV_6: // reserved 0x06
       break;

@@ -126,6 +126,9 @@ static const char font[][5] = { // basic font
 ,{0x00, 0x06, 0x09, 0x09, 0x06} // 7f Deg Symbol
 };
 
+static uint8_t prev_bar_val = 255, prev_pd_val = 255;
+static uint8_t inverse = 0x00;
+
 // LCD functions implementation
 
 void setAddr(unsigned char xAddr, unsigned char yAddr) {
@@ -162,12 +165,16 @@ void initLCD() {
     writeToLCD(LCD5110_COMMAND, PCD8544_DISPLAYCONTROL | PCD8544_DISPLAYNORMAL);
 }
 
+void setInverse(bool s) {
+  inverse = s?0xFF:0x00;
+};
+
 void writeCharToLCD(char c) {
     unsigned char i;
     for(i = 0; i < 5; i++) {
-        writeToLCD(LCD5110_DATA, font[c - 0x20][i]);
+        writeToLCD(LCD5110_DATA, inverse^font[c - 0x20][i]);
     }
-    writeToLCD(LCD5110_DATA, 0);
+    writeToLCD(LCD5110_DATA, inverse);
 }
 
 void writeDecToLCD(uint32_t i) {
@@ -273,31 +280,72 @@ char i2h(uint8_t i) {
 void bargraph(uint8_t row, uint16_t val) {
   if(row > (LCD_MAX_Y/8))
     return;
-  uint8_t x = 0;
-  setAddr(x, row);
-  writeToLCD(LCD5110_DATA, 0xFF);
-  while(++x < LCD_MAX_X-1) {
+  if(prev_bar_val == val)
+    return;
+  if(prev_bar_val == 255) {
+    uint8_t x = 0;
     setAddr(x, row);
-    writeToLCD(LCD5110_DATA, (x<val)?0xFF:0x81);
+    writeToLCD(LCD5110_DATA, 0xFF);
+    while(++x < LCD_MAX_X-1) {
+      setAddr(x, row);
+      writeToLCD(LCD5110_DATA, (x<val)?0xFF:0x81);
+    }
+    writeToLCD(LCD5110_DATA, 0xFF);
+  } else {
+    if(prev_bar_val < val) {
+      setAddr(prev_bar_val, row);
+      while(prev_bar_val < val) {
+        writeToLCD(LCD5110_DATA, 0xFF);
+        ++prev_bar_val;
+      }
+    } else {
+      uint8_t x = prev_bar_val;
+      setAddr(x, row);
+      while(x < prev_bar_val) {
+        writeToLCD(LCD5110_DATA, 0x81);
+        ++x;
+      }
+      prev_bar_val = val;
+    }
   }
-  writeToLCD(LCD5110_DATA, 0xFF);
 };
 
 void phase_difference(uint8_t row, uint16_t val) {
-  if(row > (LCD_MAX_Y/8))
+  if((val == prev_pd_val) || (row > (LCD_MAX_Y/8)))
     return;
-  uint8_t x = 0;
-  setAddr(x, row);
-  while(x < LCD_MAX_X) {
+  if(prev_pd_val == 255) {
+    uint8_t x = 0;
     setAddr(x, row);
-    if(x == 41) {
-      writeToLCD(LCD5110_DATA, 0xAA);
-    } else {
-      if(x == val) {
-        writeToLCD(LCD5110_DATA, 0xFF);
-      } else
-        writeToLCD(LCD5110_DATA, (x<val)?0x80:0x01);
+    while(x < LCD_MAX_X) {
+      setAddr(x, row);
+      if(x == 41) {
+        writeToLCD(LCD5110_DATA, 0xAA);
+      } else {
+        if(x == val) {
+          writeToLCD(LCD5110_DATA, 0xFF);
+        } else
+          writeToLCD(LCD5110_DATA, (x<val)?0x80:0x01);
+      }
+      ++x;
     }
-    ++x;
+  } else {
+    if(prev_pd_val < val) {
+      setAddr(prev_pd_val, row);
+      writeToLCD(LCD5110_DATA, 0x01);
+      while(prev_pd_val < val-1) {
+        writeToLCD(LCD5110_DATA, (prev_pd_val==41)?0xAA:0x01);
+        ++prev_pd_val;
+      }
+      writeToLCD(LCD5110_DATA, 0xFF);
+    } else {
+      uint8_t x = val;
+      writeToLCD(LCD5110_DATA, 0xFF);
+      while(x < prev_pd_val-1) {
+        writeToLCD(LCD5110_DATA, (x==41)?0xAA:0x01);
+        ++x;
+      }
+      writeToLCD(LCD5110_DATA, 0x80);
+      prev_pd_val = val;
+    }
   }
 };
