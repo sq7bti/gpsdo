@@ -5,7 +5,6 @@
 
 void initTIMER(void);
 
-uint8_t getticks();
 uint8_t getclicks();
 uint32_t getMillis();
 uint32_t getSeconds();

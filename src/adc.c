@@ -1,5 +1,7 @@
 #include "adc.h"
 
+static volatile uint8_t ticks = 0, clicks = 0;
+
 // Q8.8
 volatile uint16_t ocxo_temp_raw_value = 0;
 volatile uint16_t ocxo_temp_raw_values[16];
@@ -23,6 +25,8 @@ uint16_t getIntTemperature() {
 uint16_t getPhaseDet() { // Vcc 3.59V in Q8.8
   return ((uint32_t)phase_comp_raw_value * 0x0397) >> 10;
 };
+
+uint8_t getticks() { return ticks; };
 
 void initADC() {
   // ADC10
@@ -102,5 +106,11 @@ void __attribute__ ((interrupt(ADC10_VECTOR))) ADC10_ISR (void)
     break;
   }
 
-  __bic_SR_register_on_exit(CPUOFF);        // Clear CPUOFF bit from 0(SR)
+//  if((ADC10CTL1 & INCH_15) == INCH_3) {
+    if(!ticks) {
+      ticks = 2;
+      LPM0_EXIT;
+    }
+    --ticks;
+//  }
 }

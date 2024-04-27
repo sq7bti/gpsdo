@@ -282,3 +282,22 @@ void bargraph(uint8_t row, uint16_t val) {
   }
   writeToLCD(LCD5110_DATA, 0xFF);
 };
+
+void phase_difference(uint8_t row, uint16_t val) {
+  if(row > (LCD_MAX_Y/8))
+    return;
+  uint8_t x = 0;
+  setAddr(x, row);
+  while(x < LCD_MAX_X) {
+    setAddr(x, row);
+    if(x == 41) {
+      writeToLCD(LCD5110_DATA, 0xAA);
+    } else {
+      if(x == val) {
+        writeToLCD(LCD5110_DATA, 0xFF);
+      } else
+        writeToLCD(LCD5110_DATA, (x<val)?0x80:0x01);
+    }
+    ++x;
+  }
+};

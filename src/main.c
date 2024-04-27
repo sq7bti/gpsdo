@@ -143,6 +143,9 @@ extern uint16_t bad_crc_counter, chars_count;
 extern uint16_t period_ref;
 extern uint16_t period_vco;
 
+extern int16_t phase_diff;
+uint16_t temp_phase_diff;
+
 int main(void) {
 
     initCPU();
@@ -219,8 +222,9 @@ int main(void) {
         //clearLCD();
         //setAddr(0, 0);
 
-      if(new_frame) { //} && crc_good) {
-        new_frame = FALSE;
+      phase_difference(3, (phase_diff + 800) / 20);
+
+      if(!getticks()) {
         setAddr(84 - 6, 5);
         switch(msg_count % 4) {
           case 0: writeCharToLCD('-'); break;
@@ -234,48 +238,32 @@ int main(void) {
         writeQ88ToLCD(getOCXOTemperature());
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
-
-        //setAddr(0, 1);
-        //writeCharToLCD(' ');
         writeQ88ToLCD(getIntTemperature());
-        //writeWordToLCD(getIntTemperature());
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
-        //writeCharToLCD('V');
-        //writeCharToLCD(' ');
-        //writeWordToLCD(int_temp_sensor_value);
 
-        setAddr(0, 1);
+/*        setAddr(0, 1);
         clearBank(1);
         writeWordToLCD(phase_comp_raw_value);
         writeCharToLCD('=');
         writeQ4CToLCD(getPhaseDet());
         writeCharToLCD('V');
-        //writeWordToLCD(phase_comp_raw_value);
-        //writeDecToLCD(phase_comp_raw_value);
-        //setAddr(0, 3);
-        //bargraph(3, phase_comp_raw_value/194);
-        //writeWordToLCD(TA1R);
-
-/*        setAddr(0,0);
-        clearBank(0);
-        writeDecToLCD(period_ref);
-        setAddr(0,1);
-        clearBank(1);
-        writeDecToLCD(period_vco);
 */
 
-        setAddr(0,2);
+/*        setAddr(0,2);
         clearBank(2);
-        writeWordToLCD(TA1R);
-        writeCharToLCD(' ');
-        setAddr(0,3);
-        clearBank(3);
-        //writeWordToLCD(TA1CCR1);
-        writeDecToLCD(period_ref);
-        writeCharToLCD(' ');
-        //writeWordToLCD(TA1CCR2);
-        writeDecToLCD(period_vco);
+        if(phase_diff < 0) {
+          writeCharToLCD('-');
+          writeDecToLCD(-phase_diff);
+        } else {
+          writeCharToLCD('+');
+          writeDecToLCD((uint16_t)phase_diff);
+        }
+        */
+      }
+
+      if(new_frame) { //} && crc_good) {
+        new_frame = FALSE;
 
 /*        setAddr(0, 0);
         clearBank(0);
@@ -411,6 +399,6 @@ int main(void) {
           }
           crc_good = FALSE;
         }
-        __bis_SR_register(LPM1_bits + GIE); // Enter LPM3
+        LPM0;
     } // eof while()
 } // eof main

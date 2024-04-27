@@ -107,7 +107,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			++frame_counter[frame_type];
 			if(!crc_good)
 				++bad_crc_counter;
-			__bic_SR_register_on_exit(LPM3_bits); // Clear LPM3 bits from O(SR)
+			LPM0_EXIT;
 			return;
 		}
 
@@ -190,9 +190,5 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 
 		bitTrack++;
 		bitTrack &= 0x7F; // 128 bytes buffer
-		//if(bitTrack>85)
-		// 	bitTrack = 85; // 128 bytes buffer
-
-		//__bic_SR_register_on_exit(LPM3_bits);
 	}
 }

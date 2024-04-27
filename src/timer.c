@@ -1,6 +1,5 @@
 #include "timer.h"
 
-static volatile uint8_t ticks = 0, clicks = 0;
 static volatile uint32_t millis = 0, seconds = 0;
 static volatile uint16_t ocxo_count = 0;
 static volatile uint16_t capture_count = 0;
@@ -13,8 +12,10 @@ volatile uint16_t previous_rising_vco = 0;
 volatile uint16_t current_rising_vco = 0;
 volatile uint16_t period_vco = 0;
 
-uint8_t getticks() { return ticks; };
-uint8_t getclicks() { return clicks; };
+// positive means VCO is ahead of GPS signal
+// negative means VCO is behind GPS signal
+volatile int16_t phase_diff = 0;
+
 uint32_t getMillis() { return millis/10; };
 uint32_t getSeconds() { return seconds; };
 uint16_t getOCXO() { return ocxo_count; };
@@ -22,6 +23,8 @@ uint32_t getCAP() { return ((uint32_t)capture_overflow << 16) + capture_count; }
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
+
+#define USE_10MHZ_INPUT_AS_TACLK 1
 
 void initTIMER(void)
 {
@@ -32,6 +35,15 @@ void initTIMER(void)
 	P2OUT &= ~(BIT1 | BIT4);                    //
 	P2REN |= BIT1 | BIT4;                       // Enable pull down resistor to reduce stray counts
 
+#ifdef USE_10MHZ_INPUT_AS_TACLK
+  // 10MHz input from OCXO P1.0
+  P1SEL |= BIT0;                              // Use P1.0 as Timer1_A0 TACLK
+	P1SEL2 &= ~BIT0;                            //
+	P1DIR &= ~BIT0;                             // inputs
+	P1OUT &= ~BIT0;                             //
+	P1REN |= BIT0;                              // Enable pull down resistor to reduce stray counts
+#endif /* USE_10MHZ_INPUT_AS_TACLK */
+
   // pwm ouput on P1.6
   P1SEL |= BIT6;                              // Use P1.6 as TimerA1 output
 	P1SEL2 &= ~BIT6;                            // Timer1_A3.TAO
@@ -41,13 +53,16 @@ void initTIMER(void)
   //TA0CCTL0 = CAP | CM_1 | CCIS_0 | CCIE;
 
   // CCR1 - PWM output on P1.6
-  TA0CCTL1 = OUTMOD_7; // reset/set output
+  TA0CCTL1 = OUTMOD_3; // set/reset output - inverted with 3V3/5V shifter
   TA0CCR1 = 0x8000;   // 50% PWM
 
+#ifdef USE_10MHZ_INPUT_AS_TACLK
   // TACLK - connected 10MHz from OCXO; continuous up until 0xFFFF; clear
-  //TA0CTL = TASSEL_0 | MC_2 | TACLR;
+  TA0CTL = TASSEL_0 | MC_2 | TACLR;
+#else
   // SMCLK - 16MHz; continuous up until 0xFFFF; clear
   TA0CTL = TASSEL_2 | MC_2 | TACLR;
+#endif /* USE_10MHZ_INPUT_AS_TACLK */
 
 
   // Timer1_A
@@ -63,7 +78,7 @@ void initTIMER(void)
 
 
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
-#pragma vector=TIMER0_A0_VECTOR
+#pragma vector=TIMER0_A1_VECTOR
 __interrupt void Timer0_A1_iSR(void)
 #elif defined(__GNUC__)
 void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) Timer0_A1_iSR (void)
@@ -87,7 +102,7 @@ void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) Timer0_A1_iSR (void)
     default:
       break;
   }
-  __bic_SR_register_on_exit(LPM1_bits + GIE); // Enter LPM3
+  //LPM0_EXIT;
 }
 
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
@@ -103,16 +118,22 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
     case TA1IV_NONE: // 0x00
       break;
     case TA1IV_TACCR1: // 0x02
-      // rising edge of reference signal from GPGSA
+      // rising edge of reference signal from GPS
       current_rising_ref = TA1CCR1;
       period_ref = current_rising_ref - previous_rising_ref;
       previous_rising_ref = current_rising_ref;
+      // it means ref is delayed, vco was just captured
+      if(TA1CCTL2 & CCI)
+        phase_diff = current_rising_ref - current_rising_vco;
       break;
     case TA1IV_TACCR2: // 0x04
-      // rising edge of reference signal from GPGSA
+      // rising edge of controlled signal from VCO
       current_rising_vco = TA1CCR2;
       period_vco = current_rising_vco - previous_rising_vco;
       previous_rising_vco = current_rising_vco;
+      // it means vco is delayed, ref was just captured
+      if(TA1CCTL1 & CCI)
+        phase_diff = current_rising_ref - current_rising_vco;
       break;
     case TA1IV_6: // reserved 0x06
       break;
@@ -123,7 +144,7 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
     default:
       break;
   }
-  __bic_SR_register_on_exit(LPM1_bits + GIE); // Enter LPM3
+  //LPM0_EXIT;
 }
 
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
@@ -137,7 +158,7 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
 {
   ocxo_count = TA0R;
   capture_overflow = 0;
-  TA0CTL |= TACLR;
+  //TA0CTL |= TACLR;
   // with every fire of WDTimer it is :
   // 10kHz/64
   millis += 64;
@@ -150,5 +171,4 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
   if(!(ADC10CTL1 & ADC10BUSY)) {
       ADC10CTL0 |= ENC | ADC10ON | ADC10SC;             // Sampling and conversion start
   }
-  __bic_SR_register_on_exit(LPM1_bits + GIE); // Enter LPM3
 }
