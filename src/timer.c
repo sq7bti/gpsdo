@@ -16,6 +16,8 @@ volatile uint16_t period_vco = 0;
 // negative means VCO is behind GPS signal
 volatile int16_t phase_diff = 0;
 volatile int16_t phase_driftrate = 0;
+volatile bool vco_tracked = FALSE;
+volatile bool ref_tracked = FALSE;
 
 uint32_t getMillis() { return millis/10; };
 uint32_t getSeconds() { return seconds; };
@@ -24,6 +26,8 @@ uint32_t getCAP() { return ((uint32_t)capture_overflow << 16) + capture_count; }
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
+
+extern volatile char fix_status;
 
 #define USE_10MHZ_INPUT_AS_TACLK 1
 
@@ -55,7 +59,7 @@ void initTIMER(void)
 
   // CCR1 - PWM output on P1.6
   TA0CCTL1 = OUTMOD_3; // set/reset output - inverted with 3V3/5V shifter
-  TA0CCR1 = 0x8000;   // 50% PWM
+  TA0CCR1 = TA0CCR1_DEF;   // 50% PWM
 
 #ifdef USE_10MHZ_INPUT_AS_TACLK
   // TACLK - connected 10MHz from OCXO; continuous up until 0xFFFF; clear
@@ -131,6 +135,7 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
         phase_driftrate = new_phase_diff - phase_diff;
         phase_diff = new_phase_diff;
       }
+      ref_tracked = TRUE;
       break;
     case TA1IV_TACCR2: // 0x04
       // rising edge of controlled signal from VCO
@@ -143,6 +148,7 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
         phase_driftrate = new_phase_diff - phase_diff;
         phase_diff = new_phase_diff;
       }
+      vco_tracked = TRUE;
       break;
     case TA1IV_6: // reserved 0x06
       break;

@@ -14,6 +14,7 @@
 #ifndef USCI_A0_UART_H_
 #define USCI_A0_UART_H_
 
+#define RX_BUFF_LENGTH 90
 //                 0    1    2    3    4    5
 enum frame { UNKNOWN, RMC, VTG, GGA, GSA, GSV };
 

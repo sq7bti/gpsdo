@@ -64,6 +64,10 @@
 #define NMEA_RMC_LAT 25
 #define NMEA_RMC_LNG 27
 
+#define KP +6
+#define KI -7
+#define KD 0
+
 char lock_status;
 // 01:23:45
 //
@@ -144,7 +148,16 @@ extern uint16_t period_ref;
 extern uint16_t period_vco;
 
 extern int16_t phase_diff, phase_driftrate;
+int16_t target_phase_diff = 32000;
 uint16_t temp_phase_diff;
+
+extern bool vco_tracked;
+extern bool ref_tracked;
+
+int16_t error_current, error_previous;
+int16_t p_factor;
+int32_t i_factor;
+int16_t d_factor;
 
 int main(void) {
 
@@ -222,17 +235,23 @@ int main(void) {
         //clearLCD();
         //setAddr(0, 0);
 
-      setAddr(0, 2);
-      clearBank(2);
-      if(phase_driftrate != 0)
-        writeCharToLCD(phase_driftrate > 0?'+':'-');
-      else
-        writeCharToLCD(' ');
-      writeDecToLCD(abs(phase_driftrate));
-      writeCharToLCD(' ');
-      writeDecToLCD(period_ref);
-      writeCharToLCD(' ');
-      writeDecToLCD(period_vco);
+      //setAddr(0, 2);
+      //clearBank(2);
+      //if(phase_diff != 0)
+      //  writeCharToLCD(phase_diff > 0?'+':'-');
+      //else
+      //  writeCharToLCD(' ');
+      //writeDecToLCD(abs(phase_diff));
+      //if(phase_driftrate != 0)
+      //  writeCharToLCD(phase_driftrate > 0?'+':'-');
+      //else
+      //  writeCharToLCD(' ');
+      //writeDecToLCD(abs(phase_driftrate));
+
+      //writeCharToLCD(' ');
+      //writeDecToLCD(period_ref);
+      //writeCharToLCD(' ');
+      //writeDecToLCD(period_vco);
       phase_difference(3, (phase_diff + 800) / 20);
 
       if(!getticks()) {
@@ -246,21 +265,55 @@ int main(void) {
 
         setAddr(0, 0);
         clearBank(0);
+        setInverse(getOCXOTemperature() < (50<<8));
         writeQ88ToLCD(getOCXOTemperature());
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
+        setInverse(FALSE);
         writeQ88ToLCD(getIntTemperature());
         writeCharToLCD(0x7F);
         writeCharToLCD('C');
 
         setAddr(0, 1);
         clearBank(1);
-        writeWordToLCD(phase_comp_raw_value);
-        writeCharToLCD('=');
-        setInverse(getPhaseDet() > 1<<12);
-        writeQ4CToLCD(getPhaseDet());
-        setInverse(FALSE);
-        writeCharToLCD('V');
+        //writeWordToLCD(phase_comp_raw_value);
+        //writeStringToLCD(" = 0x");
+        if(phase_diff != 0)
+          writeCharToLCD(phase_diff > 0?'+':'-');
+        else
+          writeCharToLCD(' ');
+        writeDecToLCD(abs(phase_diff));
+        writeCharToLCD(' ');
+        if(target_phase_diff != 0)
+          writeCharToLCD(target_phase_diff > 0?'+':'-');
+        else
+          writeCharToLCD(' ');
+        writeDecToLCD(abs(target_phase_diff));
+        writeCharToLCD(' ');
+        writeWordToLCD(TA0CCR1);
+
+
+        setAddr(0, 2);
+        clearBank(2);
+
+        writeStringToLCD("p");
+        if(p_factor != 0)
+          writeCharToLCD(p_factor > 0?'+':'-');
+        else
+          writeCharToLCD(' ');
+        writeDecToLCD(abs(p_factor));
+
+        writeStringToLCD("i");
+        if(i_factor != 0)
+          writeCharToLCD(i_factor > 0?'+':'-');
+        else
+          writeCharToLCD(' ');
+        writeDecToLCD(abs(i_factor));
+
+        //setInverse(getPhaseDet() > 1<<12);
+        //writeQ4CToLCD(getPhaseDet());
+        //setInverse(FALSE);
+        //writeCharToLCD('V');
         //bargraph(2, phase_comp_raw_value/194);
 
 
@@ -274,6 +327,39 @@ int main(void) {
           writeDecToLCD((uint16_t)phase_diff);
         }
         */
+
+        if((fix_status == 'A') && (getOCXOTemperature() > (50 << 8))) {
+          if(target_phase_diff == 32000) {
+            if(ref_tracked && vco_tracked) {
+              target_phase_diff = phase_diff;
+              if(target_phase_diff < -400)
+                target_phase_diff = -400;
+              if(target_phase_diff > 400)
+                  target_phase_diff = 400;
+              if((target_phase_diff > -8) && (target_phase_diff < 8))
+                target_phase_diff = 8;
+            }
+          } else {
+            if((phase_diff < 800) && (phase_diff > -800)) {
+              // track phase
+              error_current = target_phase_diff - phase_diff;
+              // +400 is angle of 90 degrees difference between REF and VCO
+              // phase_diff <-800 ... +800>
+              p_factor = error_current;
+              i_factor += error_current;
+              d_factor = (error_previous - error_current);
+
+              // p_factor <-400 .. + 1200>
+              TA0CCR1 = TA0CCR1_DEF
+                      + (p_factor << KP)
+                      + (i_factor << KI)
+                      + (d_factor << KD);
+
+              error_previous = error_current;
+            }
+          }
+        }
+
       }
 
       if(new_frame) { //} && crc_good) {
@@ -362,6 +448,7 @@ int main(void) {
             if(fix_status_upd) {
               setAddr(84 - (6 * 4), 5);
               writeCharToLCD(fix_status);
+              fix_status_upd = FALSE;
             }
           break;
           case GGA:

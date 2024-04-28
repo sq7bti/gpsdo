@@ -18,6 +18,7 @@
 #include  "common.h"
 
 void setAddr(unsigned char xAddr, unsigned char yAddr);
+void setInverse(bool s);
 void writeToLCD(unsigned char dataCommand, unsigned char data);
 void writeCharToLCD(char c);
 void writeStringToLCD(const char *string);

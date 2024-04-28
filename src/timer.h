@@ -3,6 +3,8 @@
 
 #include "common.h"
 
+#define TA0CCR1_DEF 0x2770
+
 void initTIMER(void);
 
 uint8_t getclicks();

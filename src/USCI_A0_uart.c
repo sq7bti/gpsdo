@@ -21,7 +21,7 @@ volatile bool new_frame, crc_good;
 volatile uint16_t frame_counter[] = {       0,   0,   0,   0,   0,   0 };
 volatile uint16_t bad_crc_counter = 0, chars_count = 0;
 
-volatile uint8_t rxbuffer[128];		//serial buffer, simple linear until break character /r
+volatile uint8_t rxbuffer[RX_BUFF_LENGTH];		//serial buffer, simple linear until break character /r
 
 volatile char fix_status = 'X';
 volatile bool fix_status_upd;
@@ -189,6 +189,11 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		}
 
 		bitTrack++;
+#if RX_BUFF_LENGTH == 128
 		bitTrack &= 0x7F; // 128 bytes buffer
+#else
+		if(bitTrack >= RX_BUFF_LENGTH)
+			bitTrack = RX_BUFF_LENGTH;
+#endif
 	}
 }
