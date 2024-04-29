@@ -19,7 +19,7 @@
 enum frame { UNKNOWN, RMC, VTG, GGA, GSA, GSV };
 
 extern volatile uint8_t rxbuffer[];		//serial buffer, simple linear until break character /r
-extern volatile uint8_t bitTrack, msg_count;
+extern volatile uint8_t rxTrack, msg_count;
 extern volatile uint8_t checksum, checksum_idx;
 extern volatile enum frame frame_type;
 //extern volatile uint16_t* frame_counter;
@@ -43,6 +43,7 @@ void initUART(void);					//init the uart interface
 void putstring(const char *str);					//send string
 void sendchar(uint8_t data);				//send character
 bool gets(uint8_t data[]);				//get string terminated with linebreak - max length 16 char
+bool txBusy();
 
 uint8_t h2i(char h);
 extern char i2h(uint8_t i);

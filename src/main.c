@@ -64,8 +64,8 @@
 #define NMEA_RMC_LAT 25
 #define NMEA_RMC_LNG 27
 
-#define KP +6
-#define KI -7
+#define KP +7
+#define KI -6
 #define KD 0
 
 char lock_status;
@@ -154,6 +154,8 @@ uint16_t temp_phase_diff;
 extern bool vco_tracked;
 extern bool ref_tracked;
 
+extern uint8_t txCount;
+
 int16_t error_current, error_previous;
 int16_t p_factor;
 int32_t i_factor;
@@ -182,24 +184,40 @@ int main(void) {
 
     setAddr(0, 3);
     if(IFG1 & OFIFG)
-      writeStringToLCD("32k x-tal fault");
+      writeStringToLCD("Xtal fault");
 
     // it was power on so perform full reset of GPS module
     setAddr(10, 2);
     if(IFG1 & RSTIFG) {
       writeStringToLCD("warm start");
-    } else {
+    } else { //             012345678901234
+      char nmea_enable[] = "$PRWIILOG,???,V,,,\r\n";
       writeStringToLCD("GPS Reset");
-      putstring("$PRWIINIT,A,,,,,,,,,,,,000000,160424");
-      sendchar('\r');
-      sendchar('\n');
-      for(i = 16; i > 0; --i)
-        __delay_cycles(2000000);
-      putstring("$PRWIILOG,GSV,V,,,");
-      sendchar('\r');
-      sendchar('\n');
+      putstring("$PRWIINIT,A,,,,,,,,,,,,000000,160424\r\n");
+      while(txBusy());
+      putstring(nmea_enable);
+      while(txBusy());
+
+      nmea_enable[14] = 'A'; nmea_enable[10] = 'R'; nmea_enable[11] = 'M'; nmea_enable[12] = 'C';
+      putstring(nmea_enable);
+      while(txBusy());
+
+      nmea_enable[10] = 'G'; nmea_enable[11] = 'G'; nmea_enable[12] = 'A';
+      putstring(nmea_enable);
+      while(txBusy());
+
+      nmea_enable[11] = 'S'; nmea_enable[12] = 'V';
+      putstring(nmea_enable);
+      while(txBusy());
+
+      nmea_enable[12] = 'A';
+      putstring(nmea_enable);
+      while(txBusy());
+
+      nmea_enable[10] = 'V'; nmea_enable[11] = 'T'; nmea_enable[12] = 'G';
+      putstring(nmea_enable);
     }
-    for(i = 16; i > 0; --i)
+//    for(i = 16; i > 0; --i)
       __delay_cycles(2000000);
 
     i = 0;
@@ -296,19 +314,27 @@ int main(void) {
         setAddr(0, 2);
         clearBank(2);
 
-        writeStringToLCD("p");
-        if(p_factor != 0)
-          writeCharToLCD(p_factor > 0?'+':'-');
-        else
-          writeCharToLCD(' ');
-        writeDecToLCD(abs(p_factor));
+        if(fix_status != 'A') {
+          if(phase_driftrate != 0)
+            writeCharToLCD(phase_driftrate > 0?'+':'-');
+          else
+            writeCharToLCD(' ');
+          writeDecToLCD(abs(phase_driftrate));
+        } else {
+          writeStringToLCD("p");
+          if(p_factor != 0)
+            writeCharToLCD(p_factor > 0?'+':'-');
+          else
+            writeCharToLCD(' ');
+          writeDecToLCD(abs(p_factor));
 
-        writeStringToLCD("i");
-        if(i_factor != 0)
-          writeCharToLCD(i_factor > 0?'+':'-');
-        else
-          writeCharToLCD(' ');
-        writeDecToLCD(abs(i_factor));
+          writeStringToLCD("i");
+          if(i_factor != 0)
+            writeCharToLCD(i_factor > 0?'+':'-');
+          else
+            writeCharToLCD(' ');
+          writeDecToLCD(abs(i_factor));
+        }
 
         //setInverse(getPhaseDet() > 1<<12);
         //writeQ4CToLCD(getPhaseDet());

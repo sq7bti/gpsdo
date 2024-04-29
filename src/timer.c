@@ -130,7 +130,9 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       period_ref = current_rising_ref - previous_rising_ref;
       previous_rising_ref = current_rising_ref;
       // it means ref is delayed, vco was just captured
-      if(TA1CCTL2 & CCI) {
+      if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
+      //if(TA1CCTL2 & CCI) {
+        //new_phase_diff = current_rising_ref - (TA1IV & TA1IV_TACCR2)?TA1CCR2:current_rising_vco;
         new_phase_diff = current_rising_ref - current_rising_vco;
         phase_driftrate = new_phase_diff - phase_diff;
         phase_diff = new_phase_diff;
@@ -143,7 +145,9 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       period_vco = current_rising_vco - previous_rising_vco;
       previous_rising_vco = current_rising_vco;
       // it means vco is delayed, ref was just captured
-      if(TA1CCTL1 & CCI) {
+      if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
+      //if(TA1CCTL1 & CCI) {
+        //new_phase_diff = (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref - current_rising_vco;
         new_phase_diff = current_rising_ref - current_rising_vco;
         phase_driftrate = new_phase_diff - phase_diff;
         phase_diff = new_phase_diff;

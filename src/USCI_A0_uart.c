@@ -11,7 +11,11 @@
 //******************************************************************************
 #include  "USCI_A0_uart.h"
 
-volatile uint8_t bitTrack = 0;		//serial buffer counter
+char* volatile txTrack; // serial pointer to be transmitted
+volatile uint8_t txCount; // serial pointer to be transmitted
+volatile bool tx_busy = FALSE;
+
+volatile uint8_t rxTrack = 0;		//serial buffer counter
 volatile uint8_t crc, checksum, rx_checksum, msg_count;
 volatile uint8_t checksum_idx;
 volatile enum frame frame_type;
@@ -56,28 +60,52 @@ void initUART(void)
 		UCA0BR1 = 0x0D;                            // 16MHz 4800
 #endif
 	  UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
-	  IE2 |= UCA0RXIE;                          // Enable USCI_A0 RX interrupt
+		IFG2 &= ~(UCA0RXIFG | UCA0TXIFG);
+	  IE2 |= UCA0RXIE; // | UCA0TXIE;                          // Enable USCI_A0 RX interrupt
 
 		// enable it after all init's are finished
 	  //__bis_SR_register(GIE);       // Enter LPM0, interrupts enabled
 }
 
-void sendchar(uint8_t data){
-	while (!(IFG2 & UCA0TXIFG));                // USCI_A0 TX buffer ready?
-	UCA0TXBUF = data;
-	IFG2 &= ~UCA0TXIFG;
+bool txBusy() {
+	return tx_busy;
 }
 
 void putstring(const char *str)
 {
-    while(*str!=0)
-       sendchar(*str++);
+	txTrack = (char* volatile)str;
+	txCount = 0;
+	tx_busy = TRUE;
+	IFG2 &= ~UCA0TXIFG;
+	IE2 |= UCA0TXIE;                          // Enable USCI_A0 RX interrupt
+	UCA0TXBUF = *txTrack++;
 }
 
 // dangerous : no checks
 uint8_t h2i(char h) {
 	return (h > '9')?(h - 'A'):(h - '0');
 };
+
+//TX interrupt
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=USCIAB0TX_VECTOR
+__interrupt void USCI0TX_ISR(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCI0TX_ISR (void)
+#else
+#error Compiler not supported!
+#endif
+{
+	if(IFG2 & UCA0TXIFG) {
+		if(*txTrack) {
+			UCA0TXBUF = *txTrack++;
+			++txCount;
+		} else {
+			IE2 &= ~UCA0TXIE;                          // Disable USCI_A0 RX interrupt
+			tx_busy = FALSE;
+		}
+	}
+}
 
 //RX interrupt
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
@@ -93,7 +121,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		uint8_t RXbyte = UCA0RXBUF;
 		++chars_count;
 		if(RXbyte == '$') {
-			bitTrack = 0;
+			rxTrack = 0;
 			crc = 0;
 			frame_type = UNKNOWN;
 			checksum_idx = 255;
@@ -101,7 +129,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		}
 
 		if(RXbyte == 10) {
-			//bitTrack = 0xFF; // special value
+			//rxTrack = 0xFF; // special value
 			++msg_count;
 			new_frame = TRUE;
 			++frame_counter[frame_type];
@@ -111,7 +139,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			return;
 		}
 
-		if(bitTrack == 2) {
+		if(rxTrack == 2) {
 			switch(RXbyte) {
 				// GPRMC
 				case 'R': frame_type = RMC; break;
@@ -119,7 +147,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 				case 'V': frame_type = VTG; break;
 			}
 		}
-		if((frame_type == UNKNOWN) && (bitTrack == 4)) {
+		if((frame_type == UNKNOWN) && (rxTrack == 4)) {
 			switch(RXbyte) {
 				// GPGSA or GPGGA
 				case 'A': frame_type = (rxbuffer[3] == 'S')?GSA:GGA; chars_count = 5; break;
@@ -129,29 +157,29 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		}
 
 		if(frame_type == RMC) {
-			switch(bitTrack) {
+			switch(rxTrack) {
 				case 6: case 7: case 8: case 9: case 10: case 11:
-				if(time[bitTrack - 6] != RXbyte) {
-					time_upd |= (1<<(bitTrack-6));
-					time[bitTrack - 6] = RXbyte;
+				if(time[rxTrack - 6] != RXbyte) {
+					time_upd |= (1<<(rxTrack-6));
+					time[rxTrack - 6] = RXbyte;
 				};
 				break;
 				case 15: case 16: case 17: case 18: case 19: case 20: case 21: case 22: case 23: case 24: case 25:
-				if(latitude[bitTrack - 15] != RXbyte) {
-					latitude_upd |= (1<<(bitTrack-15));
-					latitude[bitTrack - 15] = RXbyte;
+				if(latitude[rxTrack - 15] != RXbyte) {
+					latitude_upd |= (1<<(rxTrack-15));
+					latitude[rxTrack - 15] = RXbyte;
 				};
 				break;
 				case 27: case 28: case 29: case 30: case 31: case 32: case 33: case 34: case 35: case 36: case 37: case 38:
-				if(longitude[bitTrack - 27] != RXbyte) {
-					longitude_upd |= (1<<(bitTrack-27));
-					longitude[bitTrack - 27] = RXbyte;
+				if(longitude[rxTrack - 27] != RXbyte) {
+					longitude_upd |= (1<<(rxTrack-27));
+					longitude[rxTrack - 27] = RXbyte;
 				};
 				break;
 				case 50: case 51: case 52: case 53: case 54: case 55:
-				if(date[bitTrack - 50] != RXbyte) {
-					date_upd |= (1<<(bitTrack-50));
-					date[bitTrack - 50] = RXbyte;
+				if(date[rxTrack - 50] != RXbyte) {
+					date_upd |= (1<<(rxTrack-50));
+					date[rxTrack - 50] = RXbyte;
 				};
 				break;
 				case 13:
@@ -163,7 +191,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			}
 		}
 		if(frame_type == GGA) {
-			if(bitTrack == 41) {
+			if(rxTrack == 41) {
 				uint8_t new_used_sats = h2i(rxbuffer[40]) * 10 + h2i(RXbyte);
 				if(new_used_sats != used_sats) {
 					used_sats_upd = TRUE;
@@ -174,13 +202,13 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 
 		if(RXbyte == '*') {
 			checksum = crc;
-			checksum_idx = bitTrack + 2;
+			checksum_idx = rxTrack + 2;
 		} else
 			crc ^= RXbyte;
 
-		rxbuffer[bitTrack] = RXbyte;
+		rxbuffer[rxTrack] = RXbyte;
 
-		if(bitTrack == checksum_idx) {
+		if(rxTrack == checksum_idx) {
 			if((i2h(checksum >> 4) == rxbuffer[checksum_idx-1])
 			&& (i2h(checksum & 0x0F) == rxbuffer[checksum_idx]))
 				crc_good = TRUE;
@@ -188,12 +216,12 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 				crc_good = FALSE;
 		}
 
-		bitTrack++;
+		rxTrack++;
 #if RX_BUFF_LENGTH == 128
-		bitTrack &= 0x7F; // 128 bytes buffer
+		rxTrack &= 0x7F; // 128 bytes buffer
 #else
-		if(bitTrack >= RX_BUFF_LENGTH)
-			bitTrack = RX_BUFF_LENGTH;
+		if(rxTrack >= RX_BUFF_LENGTH)
+			rxTrack = RX_BUFF_LENGTH;
 #endif
 	}
 }
