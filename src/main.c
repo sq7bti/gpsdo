@@ -161,6 +161,32 @@ int16_t p_factor;
 int32_t i_factor;
 int16_t d_factor;
 
+//                     0123456789
+char monitoring[25] = "ABCDEFGH\r\n";
+void dec2string(char **p, uint32_t i) {
+  if(i < 10)
+    *(*p++) = (i2h(i));
+  else {
+    dec2string(*p, i/10);
+    dec2string(*p, i2h(i%10));
+  }
+}
+
+void uint82str(char *out, uint8_t i) {
+  *out++ = i2h(i >> 4);
+  *out++ = i2h(i & 0x0F);
+}
+
+void uint162str(char *out, uint16_t i) {
+  uint82str(out, i >> 8);
+  uint82str(out + 2, i & 0x00FF);
+}
+
+void uint322str(char *out, uint32_t i) {
+  uint162str(out, i >> 16);
+  uint162str(out + 4, i & 0x0000FFFF);
+}
+
 int main(void) {
 
     initCPU();
@@ -294,32 +320,40 @@ int main(void) {
 
         setAddr(0, 1);
         clearBank(1);
+
+        writeQ4CToLCD(getPhaseDet());
+        writeCharToLCD('V');
+
         //writeWordToLCD(phase_comp_raw_value);
         //writeStringToLCD(" = 0x");
-        if(phase_diff != 0)
-          writeCharToLCD(phase_diff > 0?'+':'-');
-        else
-          writeCharToLCD(' ');
-        writeDecToLCD(abs(phase_diff));
-        writeCharToLCD(' ');
-        if(target_phase_diff != 0)
-          writeCharToLCD(target_phase_diff > 0?'+':'-');
-        else
-          writeCharToLCD(' ');
-        writeDecToLCD(abs(target_phase_diff));
-        writeCharToLCD(' ');
-        writeWordToLCD(TA0CCR1);
+        //if(phase_diff != 0)
+        //  writeCharToLCD(phase_diff > 0?'+':'-');
+        //else
+        //  writeCharToLCD(' ');
+        //writeDecToLCD(abs(phase_diff));
+        //writeCharToLCD(' ');
+        //if(target_phase_diff != 0)
+        //  writeCharToLCD(target_phase_diff > 0?'+':'-');
+        //else
+        //  writeCharToLCD(' ');
+        //writeDecToLCD(abs(target_phase_diff));
+        //writeCharToLCD(' ');
+        //writeWordToLCD(TA0CCR1);
 
 
         setAddr(0, 2);
         clearBank(2);
 
-        if(fix_status != 'A') {
-          if(phase_driftrate != 0)
-            writeCharToLCD(phase_driftrate > 0?'+':'-');
-          else
-            writeCharToLCD(' ');
-          writeDecToLCD(abs(phase_driftrate));
+//        if(fix_status != 'A') {
+        if(1) {
+          //if(phase_driftrate != 0)
+          //  writeCharToLCD(phase_driftrate > 0?'+':'-');
+          //else
+          //  writeCharToLCD(' ');
+          //writeDecToLCD(abs(phase_driftrate));
+          //setAddr(36, 2);
+          //writeDecToLCD(getOCXO());
+          writeMHzToLCD(getOCXO());
         } else {
           writeStringToLCD("p");
           if(p_factor != 0)
@@ -376,15 +410,16 @@ int main(void) {
               d_factor = (error_previous - error_current);
 
               // p_factor <-400 .. + 1200>
-              TA0CCR1 = TA0CCR1_DEF
-                      + (p_factor << KP)
-                      + (i_factor << KI)
-                      + (d_factor << KD);
+              //TA0CCR1 = TA0CCR1_DEF
+              //        + (p_factor << KP)
+              //        + (i_factor << KI)
+              //        + (d_factor << KD);
 
               error_previous = error_current;
             }
           }
         }
+        TA0CCR1 = phase_comp_raw_value << 2;;
 
       }
 
@@ -503,6 +538,13 @@ int main(void) {
           case GSA:
           case GSV:
           case VTG:
+            //sprintf(monitoring, "%ld\r\n", getOCXO());
+            //dec2string(monitoring, getOCXO());
+            uint322str(monitoring, getOCXO());
+            //monitoring[8] = '\r';
+            //monitoring[9] = '\n';
+            //monitoring[10] = '0';
+            putstring(monitoring);
           case UNKNOWN:
 //              lock_status = rxbuffer[NMEA_RMC_LOCK];
 //              for(c = NMEA_RMC_TIM; c < NMEA_RMC_TIM + 6; c++)

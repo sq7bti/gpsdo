@@ -23,6 +23,7 @@ void writeToLCD(unsigned char dataCommand, unsigned char data);
 void writeCharToLCD(char c);
 void writeStringToLCD(const char *string);
 void writeDecToLCD(uint32_t i);
+void writeMHzToLCD(uint32_t i);
 void writeQ88ToLCD(uint16_t i);
 void writeQ4CToLCD(uint16_t i);
 void writeByteToLCD(uint8_t i);

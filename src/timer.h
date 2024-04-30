@@ -10,7 +10,7 @@ void initTIMER(void);
 uint8_t getclicks();
 uint32_t getMillis();
 uint32_t getSeconds();
-uint16_t getOCXO();
+uint32_t getOCXO();
 uint32_t getCAP();
 
 #endif /* TIMER_H */

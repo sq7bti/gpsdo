@@ -6,13 +6,14 @@ TARGET = main
 # MCU: part number to build for
 MCU = msp430g2553
 # SOURCES: list of input source sources
-SOURCES = main.c PCD8544.c USCI_A0_uart.c timer.c adc.c
+SOURCES = main.c PCD8544.c USCI_A0_uart.c timer.c adc.c printf.c
 # INCLUDES: list of includes, by default, use Includes directory
 INCLUDES = -IInclude -I/opt/ti/msp430-gcc/include
 # OUTDIR: directory to use for output
 OUTDIR = build
 # define flags
-CFLAGS = -mmcu=$(MCU) -g -O2 -Wall -Wunused $(INCLUDES)
+CFLAGS = -mmcu=$(MCU) -g -Os -Wall -Wunused $(INCLUDES)
+# CFLAGS += -mtiny-printf
 ASFLAGS = -mmcu=$(MCU) -x assembler-with-cpp -Wa,-gstabs
 #LDFLAGS = -mmcu=$(MCU) -Wl,-Map=$(OUTDIR)/$(TARGET).map -lm
 LDFLAGS = -mmcu=$(MCU) -Wl,-Map=$(OUTDIR)/$(TARGET).map

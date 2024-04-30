@@ -1,8 +1,13 @@
 #include "timer.h"
 
+#define USE_10MHZ_INPUT_AS_TACLK 1
+#define CAPTURE_MULT 10000
+
 static volatile uint32_t millis = 0, seconds = 0;
-static volatile uint16_t ocxo_count = 0;
-static volatile uint16_t capture_count = 0;
+volatile uint32_t ocxo_count = 0;
+volatile uint32_t capture_count_acc = 0;
+volatile uint16_t capture_count = 0;
+volatile uint16_t capture_mult = CAPTURE_MULT;
 static volatile uint16_t capture_overflow = 0;
 
 volatile uint16_t previous_rising_ref = 0;
@@ -21,15 +26,13 @@ volatile bool ref_tracked = FALSE;
 
 uint32_t getMillis() { return millis/10; };
 uint32_t getSeconds() { return seconds; };
-uint16_t getOCXO() { return ocxo_count; };
+uint32_t getOCXO() { return ocxo_count; };
 uint32_t getCAP() { return ((uint32_t)capture_overflow << 16) + capture_count; };
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
 
 extern volatile char fix_status;
-
-#define USE_10MHZ_INPUT_AS_TACLK 1
 
 void initTIMER(void)
 {
@@ -55,7 +58,9 @@ void initTIMER(void)
 	P1DIR |= BIT6;                              // output
 
   // capture mode; rising edge; input select CCIxA; enable interrupts
-  //TA0CCTL0 = CAP | CM_1 | CCIS_0 | CCIE;
+  TA0CCTL0 = CAP | CM_1 | CCIS_1 | CCIE;
+  // capture mode; falling edge; input select CCIxA; enable interrupts
+  //TA0CCTL0 = CAP | CM_2 | CCIS_1 | CCIE;
 
   // CCR1 - PWM output on P1.6
   TA0CCTL1 = OUTMOD_3; // set/reset output - inverted with 3V3/5V shifter
@@ -81,33 +86,41 @@ void initTIMER(void)
   TA1CTL = TASSEL_2 | MC_2 | TACLR; // SMCLK; continuous
 }
 
-
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
-#pragma vector=TIMER0_A1_VECTOR
-__interrupt void Timer0_A1_iSR(void)
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer0_A0_iSR(void)
 #elif defined(__GNUC__)
-void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) Timer0_A1_iSR (void)
+void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) Timer0_A0_iSR (void)
 #else
 #error Compiler not supported!
 #endif
 {
-  switch(__even_in_range(TA0IV, 0x0A)) {
-    case TA0IV_NONE: // 0x00
-      break;
-    case TA0IV_TACCR1: // TACCR1 CCIFG
-      break;
-    case TA0IV_TACCR2: // TACCR2 CCIFG
-      break;
-    case TA0IV_6: // reserved
-      break;
-    case TA0IV_8: // reserved
-      break;
-    case TA0IV_TAIFG: // TAIFG
-      break;
-    default:
-      break;
-  }
-  //LPM0_EXIT;
+//  if(TA0CCTL0 & CCIFG) {
+#if CAPTURE_MULT == 1
+    ocxo_count = TACCR0 - capture_count;
+    capture_count = TACCR0;
+#else
+  #if CAPTURE_MULT < 7
+    if(!capture_mult) {
+      ocxo_count = TACCR0 - capture_count;
+      capture_count = TACCR0;
+      capture_mult = CAPTURE_MULT;
+    }
+    --capture_mult;
+  #else
+    if(!capture_mult) {
+      capture_mult = CAPTURE_MULT;
+      //ocxo_count = capture_count_acc - CAPTURE_MULT * 10000UL;
+      ocxo_count = capture_count_acc;
+      capture_count_acc = 0;
+    }
+    capture_count_acc += TACCR0 - capture_count;
+    capture_count = TACCR0;
+    --capture_mult;
+  #endif
+
+#endif
+//  }
 }
 
 volatile int16_t new_phase_diff;
@@ -138,6 +151,7 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
         phase_diff = new_phase_diff;
       }
       ref_tracked = TRUE;
+      TA1CCTL1 &= ~CCIFG;
       break;
     case TA1IV_TACCR2: // 0x04
       // rising edge of controlled signal from VCO
@@ -153,6 +167,7 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
         phase_diff = new_phase_diff;
       }
       vco_tracked = TRUE;
+      TA1CCTL2 &= ~CCIFG;
       break;
     case TA1IV_6: // reserved 0x06
       break;
@@ -175,9 +190,7 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
 #error Compiler not supported!
 #endif
 {
-  ocxo_count = TA0R;
   capture_overflow = 0;
-  //TA0CTL |= TACLR;
   // with every fire of WDTimer it is :
   // 10kHz/64
   millis += 64;

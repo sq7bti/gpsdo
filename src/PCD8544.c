@@ -186,6 +186,25 @@ void writeDecToLCD(uint32_t i) {
     }
 }
 
+void writeMHzToLCD(uint32_t i) {
+  if((i/1000000) < 10)
+    writeCharToLCD(' ');
+  writeDecToLCD(i/1000000);
+  writeCharToLCD(',');
+  if(((i%1000000)/1000) < 100)
+    writeCharToLCD('0');
+  if(((i%1000000)/1000) < 10)
+    writeCharToLCD('0');
+  writeDecToLCD((i%1000000)/1000);
+  writeCharToLCD(',');
+  if((i%1000) < 100)
+    writeCharToLCD('0');
+  if((i%1000) < 10)
+    writeCharToLCD('0');
+  writeDecToLCD(i%1000);
+  writeStringToLCD("MHz");
+}
+
 void writeQ88ToLCD(uint16_t i) {
   uint8_t decimal_places = ((i>>8)>9)?2:3;
   writeDecToLCD(i>>8);
@@ -264,6 +283,7 @@ void clearBank(unsigned char bank) {
     }
     setAddr(0, bank);
 }
+
 static const char hexnum[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
 
 char i2h(uint8_t i) {

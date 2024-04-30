@@ -74,11 +74,11 @@ bool txBusy() {
 void putstring(const char *str)
 {
 	txTrack = (char* volatile)str;
-	txCount = 0;
 	tx_busy = TRUE;
 	IFG2 &= ~UCA0TXIFG;
 	IE2 |= UCA0TXIE;                          // Enable USCI_A0 RX interrupt
 	UCA0TXBUF = *txTrack++;
+	txCount = 1;
 }
 
 // dangerous : no checks

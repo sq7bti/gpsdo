@@ -41,8 +41,6 @@ extern volatile uint16_t latitude_upd;
 
 void initUART(void);					//init the uart interface
 void putstring(const char *str);					//send string
-void sendchar(uint8_t data);				//send character
-bool gets(uint8_t data[]);				//get string terminated with linebreak - max length 16 char
 bool txBusy();
 
 uint8_t h2i(char h);

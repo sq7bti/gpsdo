@@ -22,8 +22,11 @@ uint16_t getIntTemperature() {
   return ((t_scaled  -    4039)      *    4507)     >> 8;
 };
 
-uint16_t getPhaseDet() { // Vcc 3.59V in Q8.8
-  return ((uint32_t)phase_comp_raw_value * 0x0397) >> 10;
+uint16_t getPhaseDet() {
+  // Vcc 3.59V in Q8.8
+  //return ((uint32_t)phase_comp_raw_value * 0x0397) >> 10;
+  // Vcc 5.035 in Q8.8
+  return ((uint32_t)phase_comp_raw_value * 0x0509) >> 10;
 };
 
 uint8_t getticks() { return ticks; };
