@@ -17,12 +17,14 @@
  *       for use on NJC's MSP430 LaunchPad Blog.
  ******************************************************************************/
 
-#include "stdarg.h"
+#include <stdarg.h>
+#include <string.h>
+#include "printf.h"
 
-void putc(unsigned);
-void puts(char *);
+//#define RECURSIVE 1
 
-static const unsigned long dv[] = {
+#ifndef RECURSIVE
+const unsigned long dv[] = {
 //  4294967296      // 32 bit unsigned max
 		1000000000,// +0
 		100000000, // +1
@@ -36,8 +38,26 @@ static const unsigned long dv[] = {
 		10, // +8
 		1, // +9
 		};
+#endif /* RECURSIVE */
 
-static void xtoa(char *out, unsigned long x, const unsigned long *dp) {
+#ifdef RECURSIVE
+void xtoa(char *p[], unsigned long x) {
+#else
+void xtoa(char *p[], unsigned long x, const unsigned long *dp) {
+#endif /* RECURSIVE */
+#ifdef RECURSIVE
+	if(!(**p))
+		return;
+	if(x < 10) {
+		**p = '0' + x;
+	} else {
+		xtoa(p, x/10);
+		if(!(**p))
+			return;
+		**p = '0' + (x%10);
+	}
+	++(*p);
+#else
 	char c;
 	unsigned long d;
 	if (x) {
@@ -48,24 +68,29 @@ static void xtoa(char *out, unsigned long x, const unsigned long *dp) {
 			c = '0';
 			while (x >= d)
 				++c, x -= d;
-			*out++ = c; //putc(c);
-		} while (!(d & 1));
-	} else
-		*out++ = '0'; //putc('0');
+			**p = c;
+			++(*p);
+		} while (!(d & 1) && **p);
+	} else {
+		**p = '0';
+		++(*p);
+	}
+#endif /* RECURSIVE */
+
 }
 
-static void puth(char *out, unsigned n) {
-	static const char hex[16] = { '0', '1', '2', '3', '4', '5', '6', '7', '8',
-			'9', 'A', 'B', 'C', 'D', 'E', 'F' };
-	*out++ = hex[n & 15];
+static const char hex[16] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+
+void puth(char *p[], unsigned n) {
+	**p = (hex[n & 15]);
+	++(*p);
 }
 
-void sprintf(char *out, char *format, ...)
+void strprintf(char *p[], char *format, ...)
 {
 	char c;
 	int i;
 	long n;
-  char *p = out;
 
 	va_list a;
 	va_start(a, format);
@@ -73,22 +98,48 @@ void sprintf(char *out, char *format, ...)
 		if(c == '%') {
 			switch(c = *format++) {
 				case 's': // String
-					puts(va_arg(a, char*));
+					//puts(va_arg(a, char*));
+					//char *str = va_arg(a, char*);
+					strcpy(*p, va_arg(a, char*));
+					 //strcpy(*p, str);
+					//strncpy(*p, str, strlen(str));
+					//printf(" [strlen=%d] ", strlen(str));
+					(*p) += strlen(va_arg(a, char*));
 					break;
 				case 'c':// Char
-					putc(va_arg(a, char));
-				break;
+					//putc(va_arg(a, char));
+					**p = va_arg(a, int);
+					++(*p);
+					break;
 				case 'i':// 16 bit Integer
 				case 'u':// 16 bit Unsigned
 					i = va_arg(a, int);
-					if(c == 'i' && i < 0) i = -i, putc('-');
-					xtoa(p, (unsigned)i, dv + 5);
+					if(c == 'i' && i < 0) {
+						i = -i;
+						//putc('-');
+						**p = '-';
+						++(*p);
+					}
+					xtoa(p, (unsigned)i
+#ifndef RECURSIVE
+										, dv + 5
+#endif /* RECURSIVE */
+												);
 				break;
 				case 'l':// 32 bit Long
 				case 'n':// 32 bit uNsigned loNg
 					n = va_arg(a, long);
-					if(c == 'l' && n < 0) n = -n, putc('-');
-					xtoa(p, (unsigned long)n, dv);
+					if(c == 'l' && n < 0) {
+						n = -n;
+						//putc('-');
+						**p = '-';
+						++(*p);
+					}
+					xtoa(p, (unsigned long)n
+#ifndef RECURSIVE
+											, dv
+#endif /* RECURSIVE */
+												);
 				break;
 				case 'x':// 16 bit heXadecimal
 					i = va_arg(a, int);
@@ -98,10 +149,14 @@ void sprintf(char *out, char *format, ...)
 					puth(p, i);
 				break;
 				case 0: return;
-				default: goto bad_fmt;
+				default:
+					goto bad_fmt;
 			}
 		} else
-			bad_fmt: putc(c);
+			bad_fmt: {
+				**p = c;
+				++(*p);
+			}
 	}
 	va_end(a);
 }

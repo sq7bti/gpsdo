@@ -17,6 +17,4 @@
  *       for use on NJC's MSP430 LaunchPad Blog.
  ******************************************************************************/
 
-void xtoa(unsigned long x, const unsigned long *dp);
-void puth(unsigned n);
-void sprintf(char *output, char *format, ...);
+void strprintf(char *p[], char *format, ...);

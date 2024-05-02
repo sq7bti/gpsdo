@@ -9,6 +9,7 @@ volatile uint32_t capture_count_acc = 0;
 volatile uint16_t capture_count = 0;
 volatile uint16_t capture_mult = CAPTURE_MULT;
 static volatile uint16_t capture_overflow = 0;
+static volatile uint16_t pwm_output_duty = TA0CCR1_DEF;
 
 volatile uint16_t previous_rising_ref = 0;
 volatile uint16_t current_rising_ref = 0;
@@ -19,7 +20,8 @@ volatile uint16_t period_vco = 0;
 
 // positive means VCO is ahead of GPS signal
 // negative means VCO is behind GPS signal
-volatile int16_t phase_diff = 0;
+volatile int16_t phase_diff = 0, phase_diff_prev = 0, new_phase_diff;
+volatile int16_t phase_driftrate_period = 10000;
 volatile int16_t phase_driftrate = 0;
 volatile bool vco_tracked = FALSE;
 volatile bool ref_tracked = FALSE;
@@ -28,6 +30,8 @@ uint32_t getMillis() { return millis/10; };
 uint32_t getSeconds() { return seconds; };
 uint32_t getOCXO() { return ocxo_count; };
 uint32_t getCAP() { return ((uint32_t)capture_overflow << 16) + capture_count; };
+void setPWM(uint16_t p) { pwm_output_duty = p; };
+uint16_t getPWM(void) { return pwm_output_duty; };
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
@@ -57,14 +61,18 @@ void initTIMER(void)
 	P1SEL2 &= ~BIT6;                            // Timer1_A3.TAO
 	P1DIR |= BIT6;                              // output
 
+  // if capture mode is on on CCR0 - CCR1 output is switched off
   // capture mode; rising edge; input select CCIxA; enable interrupts
-  TA0CCTL0 = CAP | CM_1 | CCIS_1 | CCIE;
+  //TA0CCTL0 = CAP | CM_1 | CCIS_1 | CCIE;
   // capture mode; falling edge; input select CCIxA; enable interrupts
-  //TA0CCTL0 = CAP | CM_2 | CCIS_1 | CCIE;
+  TA0CCTL0 = CAP | CM_2 | CCIS_1 | CCIE;
 
   // CCR1 - PWM output on P1.6
-  TA0CCTL1 = OUTMOD_3; // set/reset output - inverted with 3V3/5V shifter
-  TA0CCR1 = TA0CCR1_DEF;   // 50% PWM
+  //TA0CCTL1 = OUTMOD_7; // set/reset output - inverted with 3V3/5V shifter
+  //TA0CCTL1 = OUTMOD_7; // set/reset output - inverted with 3V3/5V shifter
+  //TA0CCTL1 = OUTMOD_1 | CCIE; // set output - will be toggled to OUTMOD_5 (reset) in ISR
+  TA0CCTL1 = OUTMOD_4 | CCIE; // set output - will be toggled to OUTMOD_5 (reset) in ISR
+  TA0CCR1 = pwm_output_duty; //TA0CCR1_DEF;   // 50% PWM
 
 #ifdef USE_10MHZ_INPUT_AS_TACLK
   // TACLK - connected 10MHz from OCXO; continuous up until 0xFFFF; clear
@@ -123,7 +131,44 @@ void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) Timer0_A0_iSR (void)
 //  }
 }
 
-volatile int16_t new_phase_diff;
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=TIMER0_A1_VECTOR
+__interrupt void Timer0_A1_iSR(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(TIMER0_A1_VECTOR))) Timer0_A1_iSR (void)
+#else
+#error Compiler not supported!
+#endif
+{
+  switch(__even_in_range(TA0IV, 0x0A)) {
+    case TA0IV_NONE: // 0x00
+      break;
+    case TA0IV_TACCR1: // 0x02
+      if(P1IN & BIT6) { //TA0CCTL0 & OUTMOD2) {
+        // was set OUTMOD_5 (reset) so switch to OUTMOD_1
+        // and (1-duty)
+        //TA0CCTL0 &= ~OUTMOD2;
+        TA0CCR1 += ~pwm_output_duty - 1;
+      } else {
+        // was set OUTMOD_5 (reset) so switch to OUTMOD_1
+        // and set CCR1 to duty
+        //TA0CCTL0 |= OUTMOD2;
+        TA0CCR1 += pwm_output_duty;
+      }
+      break;
+    case TA0IV_TACCR2: // 0x04
+      break;
+    case TA0IV_6: // reserved 0x06
+      break;
+    case TA0IV_8: // reserved 0x08
+      break;
+    case TA0IV_TAIFG: // 0x0A
+      break;
+    default:
+      break;
+  }
+  //LPM0_EXIT;
+}
 
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector=TIMER1_A1_VECTOR
@@ -145,10 +190,14 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       // it means ref is delayed, vco was just captured
       if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
       //if(TA1CCTL2 & CCI) {
-        //new_phase_diff = current_rising_ref - (TA1IV & TA1IV_TACCR2)?TA1CCR2:current_rising_vco;
-        new_phase_diff = current_rising_ref - current_rising_vco;
-        phase_driftrate = new_phase_diff - phase_diff;
-        phase_diff = new_phase_diff;
+        if(!phase_driftrate_period) {
+          //new_phase_diff = current_rising_ref - (TA1IV & TA1IV_TACCR2)?TA1CCR2:current_rising_vco;
+          new_phase_diff = current_rising_ref - current_rising_vco;
+          phase_driftrate = new_phase_diff - phase_diff;
+          phase_diff = new_phase_diff;
+          phase_driftrate_period = 2000;
+        }
+        --phase_driftrate_period;
       }
       ref_tracked = TRUE;
       TA1CCTL1 &= ~CCIFG;
@@ -161,10 +210,14 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       // it means vco is delayed, ref was just captured
       if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
       //if(TA1CCTL1 & CCI) {
-        //new_phase_diff = (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref - current_rising_vco;
-        new_phase_diff = current_rising_ref - current_rising_vco;
-        phase_driftrate = new_phase_diff - phase_diff;
-        phase_diff = new_phase_diff;
+        if(!phase_driftrate_period) {
+          //new_phase_diff = (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref - current_rising_vco;
+          new_phase_diff = current_rising_ref - current_rising_vco;
+          phase_driftrate = new_phase_diff - phase_diff;
+          phase_diff = new_phase_diff;
+          phase_driftrate_period = 2000;
+        }
+        --phase_driftrate_period;
       }
       vco_tracked = TRUE;
       TA1CCTL2 &= ~CCIFG;
@@ -190,6 +243,7 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
 #error Compiler not supported!
 #endif
 {
+  __enable_interrupt();
   capture_overflow = 0;
   // with every fire of WDTimer it is :
   // 10kHz/64

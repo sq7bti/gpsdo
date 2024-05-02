@@ -56,8 +56,13 @@ void initUART(void)
 #else // oversampling UCSO = 0
 // 16M/4800 = 3333 1/3 = 0x0D05
 		UCA0MCTL = UCBRS0;                        // Modulation UCBRSx = 1
+	#ifdef OVERCLOCK
+		UCA0BR0 = 0x46;                            // 20MHz 4800
+		UCA0BR1 = 0x10;                            // 20MHz 4800
+	#else
 		UCA0BR0 = 0x05;                            // 16MHz 4800
 		UCA0BR1 = 0x0D;                            // 16MHz 4800
+	#endif /* OVERCLOCK */
 #endif
 	  UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
 		IFG2 &= ~(UCA0RXIFG | UCA0TXIFG);
@@ -96,6 +101,7 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCI0TX_ISR (void)
 #error Compiler not supported!
 #endif
 {
+	//__enable_interrupt();
 	if(IFG2 & UCA0TXIFG) {
 		if(*txTrack) {
 			UCA0TXBUF = *txTrack++;
@@ -117,6 +123,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 #error Compiler not supported!
 #endif
 {
+	//__enable_interrupt();
 	if(IFG2 & UCA0RXIFG) {
 		uint8_t RXbyte = UCA0RXBUF;
 		++chars_count;

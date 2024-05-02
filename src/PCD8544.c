@@ -284,17 +284,8 @@ void clearBank(unsigned char bank) {
     setAddr(0, bank);
 }
 
-static const char hexnum[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
-
 char i2h(uint8_t i) {
-  return hexnum[i&0x0F];
-//  if(i < 10)
-//    return '0' + i;
-//  else
-//    if (i < 16) {
-//      return 'A' + i - 10;
-//    }
-//  return '?';
+  return ("0123456789ABCDEF")[i&0x0F];
 };
 
 void bargraph(uint8_t row, uint16_t val) {

@@ -62,6 +62,7 @@ void __attribute__ ((interrupt(ADC10_VECTOR))) ADC10_ISR (void)
 #error Compiler not supported!
 #endif
 {
+  __enable_interrupt();
   switch(ADC10CTL1 & INCH_15) {
     case INCH_3:
       ADC10CTL0 &= ~ENC;
@@ -85,8 +86,6 @@ void __attribute__ ((interrupt(ADC10_VECTOR))) ADC10_ISR (void)
       phase_comp_raw_value = 0;
       for(int i = 0; i < 16; ++i)
         phase_comp_raw_value += phase_comp_raw_values[i];
-      // output PD input on PWM output P1.4
-      //TA0CCR1 = phase_comp_raw_value << 2;
       //__delay_cycles(128);
       ADC10CTL0 = SREF_1 | ADC10SHT_3 | MSC | REFON | ADC10IE;
       ADC10CTL1 = ADC10DIV_3 | INCH_10;
