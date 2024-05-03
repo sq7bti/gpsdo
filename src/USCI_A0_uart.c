@@ -15,6 +15,8 @@ char* volatile txTrack; // serial pointer to be transmitted
 volatile uint8_t txCount; // serial pointer to be transmitted
 volatile bool tx_busy = FALSE;
 
+volatile bool rx_busy = FALSE;
+
 volatile uint8_t rxTrack = 0;		//serial buffer counter
 volatile uint8_t crc, checksum, rx_checksum, msg_count;
 volatile uint8_t checksum_idx;
@@ -125,6 +127,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 {
 	//__enable_interrupt();
 	if(IFG2 & UCA0RXIFG) {
+		rx_busy |= TRUE;
 		uint8_t RXbyte = UCA0RXBUF;
 		++chars_count;
 		if(RXbyte == '$') {
@@ -143,6 +146,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			if(!crc_good)
 				++bad_crc_counter;
 			LPM0_EXIT;
+			rx_busy = FALSE;
 			return;
 		}
 

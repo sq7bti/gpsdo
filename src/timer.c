@@ -3,6 +3,7 @@
 #define USE_10MHZ_INPUT_AS_TACLK 1
 #define CAPTURE_MULT 10000
 
+volatile uint8_t trigger_flags = 0;
 static volatile uint32_t millis = 0, seconds = 0;
 volatile uint32_t ocxo_count = 0;
 volatile uint32_t capture_count_acc = 0;
@@ -30,13 +31,25 @@ uint32_t getMillis() { return millis/10; };
 uint32_t getSeconds() { return seconds; };
 uint32_t getOCXO() { return ocxo_count; };
 uint32_t getCAP() { return ((uint32_t)capture_overflow << 16) + capture_count; };
-void setPWM(uint16_t p) { pwm_output_duty = p; };
 uint16_t getPWM(void) { return pwm_output_duty; };
+bool getTrigFlag(uint8_t id) { return trigger_flags & (0x01 << id); };
+void setTrigFlag(uint8_t id) { trigger_flags |= (0x01 << id); };
+void clearTrigFlag(uint8_t id) { trigger_flags &= ~(0x01 << id); };
+
+void setPWM(uint16_t p) {
+  if(p < 0x0007)
+    pwm_output_duty = 0x0007;
+  if(p > 0xFFF8)
+    pwm_output_duty = 0xFFF8;
+  pwm_output_duty = p;
+};
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
 
 extern volatile char fix_status;
+
+extern volatile bool rx_busy;
 
 void initTIMER(void)
 {
@@ -57,9 +70,9 @@ void initTIMER(void)
 #endif /* USE_10MHZ_INPUT_AS_TACLK */
 
   // pwm ouput on P1.6
-  P1SEL |= BIT6;                              // Use P1.6 as TimerA1 output
-	P1SEL2 &= ~BIT6;                            // Timer1_A3.TAO
-	P1DIR |= BIT6;                              // output
+  //P1SEL |= BIT6;                              // Use P1.6 as TimerA1 output
+	//P1SEL2 &= ~BIT6;                            // Timer1_A3.TAO
+	//P1DIR |= BIT6;                              // output
 
   // if capture mode is on on CCR0 - CCR1 output is switched off
   // capture mode; rising edge; input select CCIxA; enable interrupts
@@ -71,8 +84,8 @@ void initTIMER(void)
   //TA0CCTL1 = OUTMOD_7; // set/reset output - inverted with 3V3/5V shifter
   //TA0CCTL1 = OUTMOD_7; // set/reset output - inverted with 3V3/5V shifter
   //TA0CCTL1 = OUTMOD_1 | CCIE; // set output - will be toggled to OUTMOD_5 (reset) in ISR
-  TA0CCTL1 = OUTMOD_4 | CCIE; // set output - will be toggled to OUTMOD_5 (reset) in ISR
-  TA0CCR1 = pwm_output_duty; //TA0CCR1_DEF;   // 50% PWM
+  //TA0CCTL1 = OUTMOD_4 | CCIE; // set output - will be toggled to OUTMOD_5 (reset) in ISR
+  //TA0CCR1 = pwm_output_duty; //TA0CCR1_DEF;   // 50% PWM
 
 #ifdef USE_10MHZ_INPUT_AS_TACLK
   // TACLK - connected 10MHz from OCXO; continuous up until 0xFFFF; clear
@@ -84,6 +97,13 @@ void initTIMER(void)
 
 
   // Timer1_A
+  // CCR0 - generate PWM by ISR
+  TA1CCTL0 = CCIE;                                        // interrupt enable
+  P2DIR |= BIT0;                                          // P2.0 output
+  P2OUT |= BIT0;
+  TA1CCR0 = pwm_output_duty;                              // high state duration
+  //pwm_pol = true;
+
   // CCR1 - Capture input on P2.1 - 10kHz reference signal from GPS module
   TA1CCTL1 = CAP | CM_1 | CCIE | SCS | CCIS_0; // | CCIE; // capture on rising edge of CCI1A
 
@@ -132,6 +152,24 @@ void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) Timer0_A0_iSR (void)
 }
 
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=TIMER1_A0_VECTOR
+__interrupt void Timer1_A0_iSR(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(TIMER1_A0_VECTOR))) Timer1_A0_iSR (void)
+#else
+#error Compiler not supported!
+#endif
+{
+  if(P2OUT & BIT0) {
+    TA1CCR0 += pwm_output_duty;
+    P2OUT &= ~BIT0;
+  } else {
+    TA1CCR0 += ~pwm_output_duty - 1;
+    P2OUT |= BIT0;
+  }
+}
+
+/*#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector=TIMER0_A1_VECTOR
 __interrupt void Timer0_A1_iSR(void)
 #elif defined(__GNUC__)
@@ -168,7 +206,7 @@ void __attribute__ ((interrupt(TIMER0_A1_VECTOR))) Timer0_A1_iSR (void)
       break;
   }
   //LPM0_EXIT;
-}
+}*/
 
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector=TIMER1_A1_VECTOR
@@ -188,14 +226,14 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       period_ref = current_rising_ref - previous_rising_ref;
       previous_rising_ref = current_rising_ref;
       // it means ref is delayed, vco was just captured
-      if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
-      //if(TA1CCTL2 & CCI) {
+      //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
+      if(TA1CCTL2 & CCI) {
         if(!phase_driftrate_period) {
           //new_phase_diff = current_rising_ref - (TA1IV & TA1IV_TACCR2)?TA1CCR2:current_rising_vco;
           new_phase_diff = current_rising_ref - current_rising_vco;
           phase_driftrate = new_phase_diff - phase_diff;
           phase_diff = new_phase_diff;
-          phase_driftrate_period = 2000;
+          phase_driftrate_period = 10000;
         }
         --phase_driftrate_period;
       }
@@ -208,14 +246,14 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       period_vco = current_rising_vco - previous_rising_vco;
       previous_rising_vco = current_rising_vco;
       // it means vco is delayed, ref was just captured
-      if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
-      //if(TA1CCTL1 & CCI) {
+      //if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
+      if(TA1CCTL1 & CCI) {
         if(!phase_driftrate_period) {
           //new_phase_diff = (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref - current_rising_vco;
           new_phase_diff = current_rising_ref - current_rising_vco;
           phase_driftrate = new_phase_diff - phase_diff;
           phase_diff = new_phase_diff;
-          phase_driftrate_period = 2000;
+          phase_driftrate_period = 10000;
         }
         --phase_driftrate_period;
       }
@@ -234,6 +272,10 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
   //LPM0_EXIT;
 }
 
+volatile uint8_t display_update = 2;
+volatile uint8_t adc_update = 128;
+volatile uint8_t log_update = 128;
+
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector=WDT_VECTOR
 __interrupt void watchdog_timer_ISR(void)
@@ -244,7 +286,6 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
 #endif
 {
   __enable_interrupt();
-  capture_overflow = 0;
   // with every fire of WDTimer it is :
   // 10kHz/64
   millis += 64;
@@ -252,9 +293,32 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
   if(millis > 10000) {
     millis -= 10000;
     ++seconds;
+    trigger_flags |= 1 << TRIGGER_SEC;
   }
+
+  --display_update;
+  if(!display_update) {
+    display_update = 2;
+    trigger_flags |= 1 << TRIGGER_LCD;
+  }
+
+  --adc_update;
+  if(!adc_update) {
+    adc_update = 128;
+    trigger_flags |= 1 << TRIGGER_ADC;
+  }
+
+  if(rx_busy) {
+    log_update = 8;
+  }
+  if(!log_update) {
+    trigger_flags |= 1 << TRIGGER_LOG;
+    log_update = 128;
+  } else
+    --log_update;
 
   if(!(ADC10CTL1 & ADC10BUSY)) {
       ADC10CTL0 |= ENC | ADC10ON | ADC10SC;             // Sampling and conversion start
   }
+  //P2OUT ^= BIT0;
 }

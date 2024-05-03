@@ -31,18 +31,17 @@
 //                                                                  |                   |
 //              OCXO                                                |                   |
 //       -----------------                                          |                   |
-//      |           10MHz |<-- VCO output --------------------------|2      P1.0        |
+//      |           10MHz |<-- VCO output --------------------------|2      P1.0 (ext)  |
 //      |           10kHz |<-- VCO output divided % 1000 -----------|12     P2.4        |
-//      |            Vref |<-- VCO input ---------------------o<|---|14     P1.6 (neg)  |
+//      |            Vref |<-- VCO input ------------\--------o<|---|14     P1.6 (neg)  |
+//      |                 |                           \ ------o<|---|14     P2.0 (neg)  |
 //      |            LM35 |<-- temperature -------------------------|5      P1.3        |
 //       -----------------                                          |                   |
 //                                                                  |                   |
 //              4046                                                |                   |
 //       -----------------                                          |                   |
 //      |              PC |<-- Phase comparator output -------------|6      P1.4        |
-//       -----------------                                          |                   |
-//                                                                  |                   |
-//                                                                  |                   |
+//       -----------------                                           -------------------
 //
 //  This example is based on the RobG's example : http://forum.43oh.com/topic/1312-nokia-5110-display
 //  Changes:
@@ -65,8 +64,8 @@
 #define NMEA_RMC_LAT 25
 #define NMEA_RMC_LNG 27
 
-#define KP +7
-#define KI -6
+#define KP +2
+#define KI -8
 #define KD 0
 
 char lock_status;
@@ -296,6 +295,14 @@ int setup(void) {
 */
 }
 
+#define NMEA_FIX 0
+
+uint8_t nmea_valid = 0;
+extern volatile bool rx_busy;
+extern volatile uint8_t log_update;
+
+bool direction = 1;
+
 int main(void) {
 
   //                     0123456789ABCDEF0123456789ABCDEF
@@ -308,6 +315,8 @@ int main(void) {
   clearBank(1);
   clearBank(2);
   clearBank(3);
+
+  setPWM(16);
   while(1) {
       //clearLCD();
       //setAddr(0, 0);
@@ -329,21 +338,69 @@ int main(void) {
     //writeDecToLCD(period_ref);
     //writeCharToLCD(' ');
     //writeDecToLCD(period_vco);
+
+    if(getTrigFlag(TRIGGER_LCD)) {
 #ifdef OVERCLOCK
-    phase_difference(3, (phase_diff + 1000) / 24);
+      phase_difference(3, (phase_diff + 1000) / 24);
 #else
-    phase_difference(3, (phase_diff + 800) / 20);
+      phase_difference(3, (phase_diff + 800) / 20);
 #endif /* OVERCLOCK */
 
-    if(!getticks()) {
-      setAddr(84 - 6, 5);
-      switch(msg_count % 4) {
-        case 0: writeCharToLCD('-'); break;
-        case 1: writeCharToLCD('/'); break;
-        case 2: writeCharToLCD('|'); break;
-        case 3: writeCharToLCD('\\'); break;
+      setAddr(84 - 6, 4);
+      setInverse(rx_busy);
+      writeCharToLCD('R');
+      setInverse(FALSE);
+      setAddr(84 - (3*6), 4);
+      writeDecToLCD(log_update);
+      clearTrigFlag(TRIGGER_LCD);
+    }
+
+    if(getTrigFlag(TRIGGER_LOG)) {
+      p = &monitoring[0];
+      while(txBusy());
+      //strprintf(&p, "PWM %x ph %i P:%i I:%i D:%i\r\n", getPWM(), phase_diff, p_factor, i_factor, d_factor);
+      strprintf(&p, "PWM %x %l\r\n", getPWM(), getOCXO());
+      *p = 0;
+      putstring(monitoring);
+      clearTrigFlag(TRIGGER_LOG);
+      if(direction) {
+        setPWM(getPWM() + 16);
+        if(getPWM() > 0xFF80)
+          direction = FALSE;
+      } else {
+        setPWM(getPWM() - 16);
+        if(getPWM() < 0x0008)
+          direction = TRUE;
+      }
+    }
+
+    if(getTrigFlag(TRIGGER_SEC)) {
+      setAddr(0, 2);
+      clearBank(2);
+
+      if(0) { //fix_status == 'A') {
+
+        writeStringToLCD("p");
+        if(p_factor != 0)
+          writeCharToLCD(p_factor > 0?'+':'-');
+        else
+          writeCharToLCD(' ');
+        writeDecToLCD(abs(p_factor));
+
+        writeStringToLCD("i");
+        if(i_factor != 0)
+          writeCharToLCD(i_factor > 0?'+':'-');
+        else
+          writeCharToLCD(' ');
+        writeDecToLCD(abs(i_factor));
+      } else {
+        writeMHzToLCD(getOCXO());
       }
 
+      clearTrigFlag(TRIGGER_SEC);
+    }
+
+    if(getTrigFlag(TRIGGER_ADC)) {
       setAddr(0, 0);
       clearBank(0);
       setInverse(getOCXOTemperature() < (50<<8));
@@ -386,31 +443,26 @@ int main(void) {
         writeCharToLCD(phase_driftrate > 0?'+':'-');
       else
         writeCharToLCD(' ');
-      writeDecToLCD(abs(phase_driftrate));
+      writeDecToLCD(abs(2 * phase_driftrate));
+      writeStringToLCD("Hz");
+
+
+      clearTrigFlag(TRIGGER_ADC);
+    }
+
+    if(!getticks()) {
+      setAddr(84 - 6, 5);
+      switch(msg_count % 4) {
+        case 0: writeCharToLCD('-'); break;
+        case 1: writeCharToLCD('/'); break;
+        case 2: writeCharToLCD('|'); break;
+        case 3: writeCharToLCD('\\'); break;
+      }
+
       //setAddr(36, 2);
       //writeDecToLCD(10000000 - getOCXO());
       //writeMHzToLCD(getOCXO());
 
-      setAddr(0, 2);
-      clearBank(2);
-      writeMHzToLCD(getOCXO());
-
-      if(0) { //fix_status == 'A') {
-
-        writeStringToLCD("p");
-        if(p_factor != 0)
-          writeCharToLCD(p_factor > 0?'+':'-');
-        else
-          writeCharToLCD(' ');
-        writeDecToLCD(abs(p_factor));
-
-        writeStringToLCD("i");
-        if(i_factor != 0)
-          writeCharToLCD(i_factor > 0?'+':'-');
-        else
-          writeCharToLCD(' ');
-        writeDecToLCD(abs(i_factor));
-      }
 
       //setInverse(getPhaseDet() > 1<<12);
       //writeQ4CToLCD(getPhaseDet());
@@ -431,7 +483,7 @@ int main(void) {
       */
 
 
-      if((fix_status == 'A') && (getOCXOTemperature() > (50 << 8))) {
+      if(0) { //(fix_status == 'A') && (getOCXOTemperature() > (50 << 8))) {
         if(target_phase_diff == 32000) {
           if(ref_tracked && vco_tracked) {
             target_phase_diff = phase_diff;
@@ -439,13 +491,17 @@ int main(void) {
               target_phase_diff = -500;
             if(target_phase_diff > 500)
                 target_phase_diff = 500;
-            if((target_phase_diff > -8) && (target_phase_diff < 8))
-              target_phase_diff = 8;
+            if((target_phase_diff > -10) && (target_phase_diff < 10))
+              if(phase_diff > 0)
+                target_phase_diff = 10;
+              else
+                target_phase_diff = -10;
             p = &monitoring[0];
             while(txBusy());
             strprintf(&p, "start tracking; target phase diff %i\r\n", target_phase_diff);
             *p = 0;
             putstring(monitoring);
+            setPWM(16);
           }
         } else {
           if((phase_diff < 1000) && (phase_diff > -1000)) {
@@ -454,14 +510,14 @@ int main(void) {
             // +500 is angle of 90 degrees difference between REF and VCO
             // phase_diff <-1000 ... +1000>
             p_factor = error_current;
-            i_factor += error_current;
+            i_factor += error_current >> 4;
             d_factor = (error_previous - error_current);
 
             // p_factor <-500 .. + 1500>
-            setPWM(TA0CCR1_DEF
+/*            setPWM(TA0CCR1_DEF
                     + (p_factor << KP)
                     + (i_factor << KI)
-                    + (d_factor << KD));
+                    + (d_factor << KD));*/
 
             error_previous = error_current;
           }
@@ -470,8 +526,9 @@ int main(void) {
 
       //phase_difference(3, (phase_diff + 800) / 20);
       // phase_diff = <-800 ... +800>
-      setPWM((phase_diff + 1000) << 5);
+      //setPWM((phase_diff + 1000) << 5);
       //TA0CCR1 = phase_comp_raw_value << 2;
+      //setPWM(phase_comp_raw_value << 2);
     }
 
     if(new_frame) { //} && crc_good) {
@@ -585,16 +642,6 @@ int main(void) {
       }
       switch(frame_type) {
         case VTG:
-          p = &monitoring[0];
-          while(txBusy());
-          //int16_t p_factor;
-          //int32_t i_factor;
-          //int16_t d_factor;
-          strprintf(&p, "%x %x P%i I%i D%i\r\n", TA0CCR1, phase_comp_raw_value, p_factor, i_factor, d_factor);
-          *p = 0;
-          putstring(monitoring);
-          //if(fix_status == 'A')
-          //  TA0CCR1 += 256;
         case RMC:
         case GSA:
         case GSV:
