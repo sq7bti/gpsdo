@@ -79,10 +79,18 @@ void xtoa(char *p[], unsigned long x, const unsigned long *dp) {
 
 }
 
-static const char hex[16] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+// dangerous : no checks
+uint8_t h2i(char h) {
+	return (h > '9')?(h - 'A'):(h - '0');
+};
+
+char i2h(uint8_t i) {
+  return "0123456789ABCDEF"[i&0x0F];
+};
+
 
 void puth(char *p[], unsigned n) {
-	**p = (hex[n & 15]);
+	**p = i2h(n);
 	++(*p);
 }
 
@@ -98,16 +106,10 @@ void strprintf(char *p[], char *format, ...)
 		if(c == '%') {
 			switch(c = *format++) {
 				case 's': // String
-					//puts(va_arg(a, char*));
-					//char *str = va_arg(a, char*);
 					strcpy(*p, va_arg(a, char*));
-					 //strcpy(*p, str);
-					//strncpy(*p, str, strlen(str));
-					//printf(" [strlen=%d] ", strlen(str));
 					(*p) += strlen(va_arg(a, char*));
 					break;
 				case 'c':// Char
-					//putc(va_arg(a, char));
 					**p = va_arg(a, int);
 					++(*p);
 					break;
@@ -116,7 +118,6 @@ void strprintf(char *p[], char *format, ...)
 					i = va_arg(a, int);
 					if(c == 'i' && i < 0) {
 						i = -i;
-						//putc('-');
 						**p = '-';
 						++(*p);
 					}
@@ -126,12 +127,65 @@ void strprintf(char *p[], char *format, ...)
 #endif /* RECURSIVE */
 												);
 				break;
+				case 'q':// Q8R8
+					i = va_arg(a, int);
+					if(c == 'i' && i < 0) {
+						i = -i;
+						**p = '-';
+						++(*p);
+					}
+					xtoa(p, (unsigned)(i >> 8)
+#ifndef RECURSIVE
+										, dv + 5
+#endif /* RECURSIVE */
+												);
+					**p = '.';
+					++(*p);
+					i &= 0x00FF;
+					i *= 10;
+					**p = '0' + ((i & 0xFF00) >> 8);
+					++(*p);
+					i &= 0x00FF;
+					i *= 10;
+					**p = '0' + ((i & 0xFF00) >> 8);
+					++(*p);
+				break;
+				case 'r':// Q4R12
+					i = va_arg(a, int);
+					if(c == 'i' && i < 0) {
+						i = -i;
+						//putc('-');
+						**p = '-';
+						++(*p);
+					}
+					char decimal_places = ((i>>12)>9)?2:3;
+					xtoa(p, (unsigned)(i >> 12)
+#ifndef RECURSIVE
+										, dv + 5
+#endif /* RECURSIVE */
+												);
+					**p = '.';
+					++(*p);
+					i &= 0x0FFF;
+					i *= 10;
+					**p = '0' + ((i & 0xF000) >> 12);
+					++(*p);
+					i &= 0x0FFF;
+					i *= 10;
+					**p = '0' + ((i & 0xF000) >> 12);
+					++(*p);
+					if(decimal_places > 2) {
+						i &= 0x0FFF;
+						i *= 10;
+						**p = '0' + ((i & 0xF000) >> 12);
+						++(*p);
+					}
+				break;
 				case 'l':// 32 bit Long
 				case 'n':// 32 bit uNsigned loNg
 					n = va_arg(a, long);
 					if(c == 'l' && n < 0) {
 						n = -n;
-						//putc('-');
 						**p = '-';
 						++(*p);
 					}

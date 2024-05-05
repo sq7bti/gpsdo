@@ -14,12 +14,13 @@
 #ifndef USCI_A0_UART_H_
 #define USCI_A0_UART_H_
 
-#define RX_BUFF_LENGTH 90
+//#define RX_BUFF_LENGTH 90
+
 //                 0    1    2    3    4    5
 enum frame { UNKNOWN, RMC, VTG, GGA, GSA, GSV };
 
-extern volatile uint8_t rxbuffer[];		//serial buffer, simple linear until break character /r
-extern volatile uint8_t rxTrack, msg_count;
+//extern volatile uint8_t rxbuffer[];		//serial buffer, simple linear until break character /r
+//extern volatile uint8_t rxTrack, msg_count;
 extern volatile uint8_t checksum, checksum_idx;
 extern volatile enum frame frame_type;
 //extern volatile uint16_t* frame_counter;

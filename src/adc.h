@@ -4,7 +4,7 @@
 
 uint16_t getOCXOTemperature();
 uint16_t getIntTemperature();
-uint16_t getADC();
+uint16_t getPhaseDet();
 uint8_t getticks();
 void initADC();
 

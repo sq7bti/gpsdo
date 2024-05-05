@@ -222,9 +222,11 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       break;
     case TA1IV_TACCR1: // 0x02
       // rising edge of reference signal from GPS
-      current_rising_ref = TA1CCR1;
-      period_ref = current_rising_ref - previous_rising_ref;
-      previous_rising_ref = current_rising_ref;
+      if(TA1CCTL1 & CCI) {
+        current_rising_ref = TA1CCR1;
+        period_ref = current_rising_ref - previous_rising_ref;
+        previous_rising_ref = current_rising_ref;
+      }
       // it means ref is delayed, vco was just captured
       //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
       if(TA1CCTL2 & CCI) {
@@ -242,9 +244,11 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       break;
     case TA1IV_TACCR2: // 0x04
       // rising edge of controlled signal from VCO
-      current_rising_vco = TA1CCR2;
-      period_vco = current_rising_vco - previous_rising_vco;
-      previous_rising_vco = current_rising_vco;
+      if(TA1CCTL2 & CCI) {
+        current_rising_vco = TA1CCR2;
+        period_vco = current_rising_vco - previous_rising_vco;
+        previous_rising_vco = current_rising_vco;
+      }
       // it means vco is delayed, ref was just captured
       //if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
       if(TA1CCTL1 & CCI) {

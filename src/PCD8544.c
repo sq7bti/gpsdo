@@ -1,5 +1,6 @@
 #include <msp430g2553.h>
 #include "PCD8544.h"
+#include "printf.h"
 
 #define PCD8544_POWERDOWN 0x04
 #define PCD8544_ENTRYMODE 0x02
@@ -206,37 +207,19 @@ void writeMHzToLCD(uint32_t i) {
 }
 
 void writeQ88ToLCD(uint16_t i) {
-  uint8_t decimal_places = ((i>>8)>9)?2:3;
-  writeDecToLCD(i>>8);
-  writeCharToLCD('.');
-  i &= 0x00FF;
-  i *= 10;
-  writeDecToLCD((i&0xFF00)>>8);
-  i &= 0x00FF;
-  i *= 10;
-  writeDecToLCD((i&0xFF00)>>8);
-  if(decimal_places > 2) {
-    i &= 0x00FF;
-    i *= 10;
-    writeDecToLCD((i&0xFF00)>>8);
-  }
+  char buff[7];
+  char *p = &buff[0];
+  strprintf(&p, "%q", i);
+  *p = 0;
+  writeStringToLCD(buff);
 }
 
 void writeQ4CToLCD(uint16_t i) {
-  uint8_t decimal_places = ((i>>12)>9)?2:3;
-  writeDecToLCD(i>>12);
-  writeCharToLCD('.');
-  i &= 0x0FFF;
-  i *= 10;
-  writeDecToLCD((i&0xF000)>>12);
-  i &= 0x0FFF;
-  i *= 10;
-  writeDecToLCD((i&0xF000)>>12);
-  if(decimal_places > 2) {
-    i &= 0x0FFF;
-    i *= 10;
-    writeDecToLCD((i&0xF000)>>12);
-  }
+  char buff[7];
+  char *p = &buff[0];
+  strprintf(&p, "%r", i);
+  *p = 0;
+  writeStringToLCD(buff);
 }
 
 void writeByteToLCD(uint8_t i) {
@@ -283,10 +266,6 @@ void clearBank(unsigned char bank) {
     }
     setAddr(0, bank);
 }
-
-char i2h(uint8_t i) {
-  return ("0123456789ABCDEF")[i&0x0F];
-};
 
 void bargraph(uint8_t row, uint16_t val) {
   if(row > (LCD_MAX_Y/8))

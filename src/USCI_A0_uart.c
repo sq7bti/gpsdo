@@ -9,7 +9,8 @@
 //   May 2012
 //   Based on: 	TI, D.Dong MSP430G2xx3 examples
 //******************************************************************************
-#include  "USCI_A0_uart.h"
+#include "USCI_A0_uart.h"
+#include "printf.h"
 
 char* volatile txTrack; // serial pointer to be transmitted
 volatile uint8_t txCount; // serial pointer to be transmitted
@@ -21,26 +22,59 @@ volatile uint8_t rxTrack = 0;		//serial buffer counter
 volatile uint8_t crc, checksum, rx_checksum, msg_count;
 volatile uint8_t checksum_idx;
 volatile enum frame frame_type;
-volatile bool new_frame, crc_good;
+volatile bool new_frame, crc_good_high, crc_good_low;
 //                 0    1    2    3    4    5
 //                                  { UNKNOWN, RMC, VTG, GGA, GSA, GSV };
 volatile uint16_t frame_counter[] = {       0,   0,   0,   0,   0,   0 };
 volatile uint16_t bad_crc_counter = 0, chars_count = 0;
 
+#if defined RX_BUFF_LENGTH
 volatile uint8_t rxbuffer[RX_BUFF_LENGTH];		//serial buffer, simple linear until break character /r
+#endif /* defined RX_BUFF_LENGTH */
+
 
 volatile char fix_status = 'X';
 volatile bool fix_status_upd;
 volatile uint8_t used_sats = 0;
 volatile bool used_sats_upd = FALSE;
-volatile char date[] = "yymmdd";
+
+// 01234567
+// 01:23:45
+// hh mm ss
+// 24-05-31
+// yy mm dd
+const uint8_t clock_array[] = { 0, 1, 3, 4, 6, 7 }; // 6
+
+volatile char date[] = "dd-mm-yy";
 volatile uint8_t date_upd = 0;
-volatile char time[] = "hhmmss";
+volatile char time[] = "hh:mm:ss";
 volatile uint8_t time_upd = 0;
-volatile char latitude[] = "ddmm_ffff_h"; // 1234.5678,N
+
+// latitude
+// 0123456789A
+// 1234.5678,N
+// 12*34'5678N
+// 0123456789A
+//                           0  1  2  3  4  5  6  7  8  9  10
+const int8_t lat_array[] = { 0, 1, 3, 4,-1, 6, 7, 8, 9,-1, 10 }; // 11
+//                          0123456789A
+volatile char latitude[] = "dd\x7Fmm\'ffffh"; // 12*34.5678N
 volatile uint16_t latitude_upd = 0;
-volatile char longitude[] = "dddmm_ffff_h"; // 01234.5678,E
+// 2-> degrees
+// 5-> apostrophe
+
+// longitude
+// 0123456789AB
+// 01234.5678,E
+// 012*34'5678E
+// 0124566789AA
+//                           0  1  2  3  4  5  6  7  8  9 10, 11
+const int8_t lon_array[] = { 0, 1, 2, 4, 5,-1, 7, 8, 9,10,-1, 11 }; // 12
+//                           0123456789AB
+volatile char longitude[] = "ddd\x7Fmm\'ffffh"; // 01234.5678,E
 volatile uint16_t longitude_upd = 0;
+// 3 -> degrees
+// 4 -> apostrophe
 
 void initUART(void)
 {
@@ -87,11 +121,6 @@ void putstring(const char *str)
 	UCA0TXBUF = *txTrack++;
 	txCount = 1;
 }
-
-// dangerous : no checks
-uint8_t h2i(char h) {
-	return (h > '9')?(h - 'A'):(h - '0');
-};
 
 //TX interrupt
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
@@ -143,7 +172,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			++msg_count;
 			new_frame = TRUE;
 			++frame_counter[frame_type];
-			if(!crc_good)
+			if(!crc_good_high || !crc_good_low)
 				++bad_crc_counter;
 			LPM0_EXIT;
 			rx_busy = FALSE;
@@ -158,10 +187,18 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 				case 'V': frame_type = VTG; break;
 			}
 		}
-		if((frame_type == UNKNOWN) && (rxTrack == 4)) {
+		if(rxTrack == 3) {
 			switch(RXbyte) {
-				// GPGSA or GPGGA
-				case 'A': frame_type = (rxbuffer[3] == 'S')?GSA:GGA; chars_count = 5; break;
+				// GPG_S_A or GPG_S_V
+				case 'S': frame_type = GSA; break;
+				// GPG_G_A
+				case 'G': frame_type = GGA; break;
+			}
+		}
+		if((frame_type == GSA) && (rxTrack == 4)) {
+			switch(RXbyte) {
+				// GPGS_A or GPGS_V
+				case 'A': frame_type = GSA; break;
 				// GPGSV
 				case 'V': frame_type = GSV; break;
 			}
@@ -170,27 +207,37 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		if(frame_type == RMC) {
 			switch(rxTrack) {
 				case 6: case 7: case 8: case 9: case 10: case 11:
-				if(time[rxTrack - 6] != RXbyte) {
-					time_upd |= (1<<(rxTrack-6));
-					time[rxTrack - 6] = RXbyte;
+				if(time[clock_array[rxTrack - 6]] != RXbyte) {
+					time[clock_array[rxTrack - 6]] = RXbyte;
+					time_upd |= (1<<(clock_array[rxTrack-6]));
 				};
 				break;
-				case 15: case 16: case 17: case 18: case 19: case 20: case 21: case 22: case 23: case 24: case 25:
-				if(latitude[rxTrack - 15] != RXbyte) {
-					latitude_upd |= (1<<(rxTrack-15));
-					latitude[rxTrack - 15] = RXbyte;
+				case 15: case 16: case 17: case 18:
+				//case 19:
+				case 20: case 21: case 22: case 23:
+				//case 24:
+				case 25:
+				//if((lat_array[rxTrack - 15] != -1) && (latitude[lat_array[rxTrack - 15]] != RXbyte)) {
+				if(latitude[lat_array[rxTrack - 15]] != RXbyte) {
+					latitude[lat_array[rxTrack - 15]] = RXbyte;
+					latitude_upd |= (1<<(lat_array[rxTrack-15]));
 				};
 				break;
-				case 27: case 28: case 29: case 30: case 31: case 32: case 33: case 34: case 35: case 36: case 37: case 38:
-				if(longitude[rxTrack - 27] != RXbyte) {
-					longitude_upd |= (1<<(rxTrack-27));
-					longitude[rxTrack - 27] = RXbyte;
+				case 27: case 28: case 29: case 30: case 31:
+				//case 32:
+				case 33: case 34: case 35: case 36:
+				//case 37:
+				case 38:
+				//if((lon_array[rxTrack - 27] != -1) && (longitude[lon_array[rxTrack - 27]] != RXbyte)) {
+				if(longitude[lon_array[rxTrack - 27]] != RXbyte) {
+					longitude[lon_array[rxTrack - 27]] = RXbyte;
+					longitude_upd |= (1<<(lon_array[rxTrack-27]));
 				};
 				break;
 				case 50: case 51: case 52: case 53: case 54: case 55:
-				if(date[rxTrack - 50] != RXbyte) {
-					date_upd |= (1<<(rxTrack-50));
-					date[rxTrack - 50] = RXbyte;
+				if(date[clock_array[rxTrack - 50]] != RXbyte) {
+					date[clock_array[rxTrack - 50]] = RXbyte;
+					date_upd |= (1<<(clock_array[rxTrack-50]));
 				};
 				break;
 				case 13:
@@ -202,37 +249,56 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			}
 		}
 		if(frame_type == GGA) {
-			if(rxTrack == 41) {
-				uint8_t new_used_sats = h2i(rxbuffer[40]) * 10 + h2i(RXbyte);
-				if(new_used_sats != used_sats) {
+			if(rxTrack == 40) {
+				if((used_sats / 10) != h2i(RXbyte)) {
 					used_sats_upd = TRUE;
-					used_sats = new_used_sats;
+					used_sats %= 10;
+					used_sats += 10 * h2i(RXbyte);
+				}
+			}
+			if(rxTrack == 41) {
+				if((used_sats % 10) != h2i(RXbyte)) {
+					used_sats_upd = TRUE;
+					used_sats /= 10;
+					used_sats *= 10;
+					used_sats += h2i(RXbyte);
 				}
 			}
 		}
 
 		if(RXbyte == '*') {
 			checksum = crc;
-			checksum_idx = rxTrack + 2;
+			checksum_idx = rxTrack + 1;
 		} else
 			crc ^= RXbyte;
 
+#if defined RX_BUFF_LENGTH
 		rxbuffer[rxTrack] = RXbyte;
+#endif /* defined RX_BUFF_LENGTH */
 
 		if(rxTrack == checksum_idx) {
-			if((i2h(checksum >> 4) == rxbuffer[checksum_idx-1])
-			&& (i2h(checksum & 0x0F) == rxbuffer[checksum_idx]))
-				crc_good = TRUE;
+			if(i2h(checksum >> 4) == RXbyte)
+				crc_good_high = TRUE;
 			else
-				crc_good = FALSE;
+				crc_good_high = FALSE;
+		}
+		if(rxTrack == (checksum_idx + 1)) {
+			if(i2h(checksum & 0x0F) == RXbyte)
+				crc_good_low = TRUE;
+			else
+				crc_good_low = FALSE;
 		}
 
 		rxTrack++;
-#if RX_BUFF_LENGTH == 128
+#if defined RX_BUFF_LENGTH
+	#if RX_BUFF_LENGTH == 128
 		rxTrack &= 0x7F; // 128 bytes buffer
-#else
+	#else
 		if(rxTrack >= RX_BUFF_LENGTH)
 			rxTrack = RX_BUFF_LENGTH;
+	#endif /* defined RX_BUFF_LENGTH */
+#else
+	rxTrack &= 0x7F; // 128 bytes buffer
 #endif
 	}
 }
