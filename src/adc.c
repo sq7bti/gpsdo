@@ -73,10 +73,10 @@ void __attribute__ ((interrupt(ADC10_VECTOR))) ADC10_ISR (void)
           ocxo_temp_raw_value += dtc_raw_values[i];
         //ocxo_temp_raw_value <<= 4;
         } else {
-          //ocxo_temp_raw_value -= ocxo_temp_raw_value >> 4;
-          ocxo_temp_raw_value = 0;
+          ocxo_temp_raw_value -= ocxo_temp_raw_value >> 3;
+          //ocxo_temp_raw_value = 0;
           for(int i = 0; i < 16; ++i)
-            ocxo_temp_raw_value += dtc_raw_values[i];
+            ocxo_temp_raw_value += dtc_raw_values[i] >> 3;
         }
       ADC10CTL0 = SREF_0 | ADC10SHT_3 | MSC | ADC10IE;
       ADC10CTL1 = ADC10DIV_3 | INCH_4;
@@ -84,9 +84,17 @@ void __attribute__ ((interrupt(ADC10_VECTOR))) ADC10_ISR (void)
     break;
     case INCH_4:
       ADC10CTL0 &= ~ENC;
-      phase_comp_raw_value = 0;
-      for(int i = 0; i < 16; ++i)
-        phase_comp_raw_value += dtc_raw_values[i];
+      if(!phase_comp_raw_value) {
+        for(int i = 0; i < 16; ++i)
+          phase_comp_raw_value += dtc_raw_values[i];
+      } else {
+        phase_comp_raw_value -= phase_comp_raw_value >> 2;
+        //phase_comp_raw_value = 0; //phase_comp_raw_value >> 4;
+        for(int i = 0; i < 16; ++i)
+          phase_comp_raw_value += dtc_raw_values[i] >> 2;
+      }
+      //for(int i = 0; i < 16; ++i)
+      //  phase_comp_raw_value += dtc_raw_values[i];
       ADC10CTL0 = SREF_1 | ADC10SHT_3 | MSC | REFON | ADC10IE;
       ADC10CTL1 = ADC10DIV_3 | INCH_10;
       ADC10SA = (uint16_t)dtc_raw_values;
@@ -97,10 +105,10 @@ void __attribute__ ((interrupt(ADC10_VECTOR))) ADC10_ISR (void)
           int_temp_sensor_value += dtc_raw_values[i];
         int_temp_sensor_value <<= 2;
       } else {
-        int_temp_sensor_value -= int_temp_sensor_value >> 2;
+        int_temp_sensor_value -= int_temp_sensor_value >> 4;
         //int_temp_sensor_value = 0;
         for(int i = 0; i < 16; ++i)
-          int_temp_sensor_value += dtc_raw_values[i];
+          int_temp_sensor_value += dtc_raw_values[i] >> 2;
       }
       ADC10CTL0 = SREF_1 | ADC10SHT_3 | MSC | REFON | ADC10IE;
       ADC10CTL1 = ADC10DIV_3 | INCH_3;

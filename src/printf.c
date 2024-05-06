@@ -96,7 +96,7 @@ void puth(char *p[], unsigned n) {
 
 void strprintf(char *p[], char *format, ...)
 {
-	char c;
+	char c, decimal_places;
 	int i;
 	long n;
 
@@ -134,6 +134,7 @@ void strprintf(char *p[], char *format, ...)
 						**p = '-';
 						++(*p);
 					}
+					decimal_places = ((i>>8)>9)?1:2;
 					xtoa(p, (unsigned)(i >> 8)
 #ifndef RECURSIVE
 										, dv + 5
@@ -145,10 +146,12 @@ void strprintf(char *p[], char *format, ...)
 					i *= 10;
 					**p = '0' + ((i & 0xFF00) >> 8);
 					++(*p);
-					i &= 0x00FF;
-					i *= 10;
-					**p = '0' + ((i & 0xFF00) >> 8);
-					++(*p);
+					if(decimal_places > 1) {
+						i &= 0x00FF;
+						i *= 10;
+						**p = '0' + ((i & 0xFF00) >> 8);
+						++(*p);
+					}
 				break;
 				case 'r':// Q4R12
 					i = va_arg(a, int);
@@ -158,7 +161,7 @@ void strprintf(char *p[], char *format, ...)
 						**p = '-';
 						++(*p);
 					}
-					char decimal_places = ((i>>12)>9)?2:3;
+					decimal_places = ((i>>12)>9)?2:3;
 					xtoa(p, (unsigned)(i >> 12)
 #ifndef RECURSIVE
 										, dv + 5

@@ -19,6 +19,9 @@ volatile bool tx_busy = FALSE;
 volatile bool rx_busy = FALSE;
 
 volatile uint8_t rxTrack = 0;		//serial buffer counter
+volatile uint8_t field_id = 0;
+volatile uint8_t fieldTrack = 0;
+
 volatile uint8_t crc, checksum, rx_checksum, msg_count;
 volatile uint8_t checksum_idx;
 volatile enum frame frame_type;
@@ -75,6 +78,12 @@ volatile char longitude[] = "ddd\x7Fmm\'ffffh"; // 01234.5678,E
 volatile uint16_t longitude_upd = 0;
 // 3 -> degrees
 // 4 -> apostrophe
+
+volatile char alt_str[] = "-123.4";
+volatile int16_t altitude = 0;
+
+volatile char hdop_str[] = "1.50";
+volatile uint8_t hdop = 0;
 
 void initUART(void)
 {
@@ -159,11 +168,26 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		rx_busy |= TRUE;
 		uint8_t RXbyte = UCA0RXBUF;
 		++chars_count;
+
 		if(RXbyte == '$') {
 			rxTrack = 0;
 			crc = 0;
 			frame_type = UNKNOWN;
 			checksum_idx = 255;
+			field_id = 0;
+			return;
+		}
+
+		if(RXbyte == ',') {
+			++field_id;
+			if(frame_type == GGA) {
+				if(field_id == 9)
+					hdop_str[fieldTrack] = 0;
+				if(field_id == 10)
+					alt_str[fieldTrack] = 0;
+			}
+			fieldTrack = 0;
+			++rxTrack;
 			return;
 		}
 
@@ -205,64 +229,96 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		}
 
 		if(frame_type == RMC) {
-			switch(rxTrack) {
-				case 6: case 7: case 8: case 9: case 10: case 11:
-				if(time[clock_array[rxTrack - 6]] != RXbyte) {
-					time[clock_array[rxTrack - 6]] = RXbyte;
-					time_upd |= (1<<(clock_array[rxTrack-6]));
+			// time
+			if(field_id == 1) {
+				if(time[clock_array[fieldTrack]] != RXbyte) {
+					time[clock_array[fieldTrack]] = RXbyte;
+					time_upd |= (1<<(clock_array[fieldTrack]));
 				};
-				break;
-				case 15: case 16: case 17: case 18:
-				//case 19:
-				case 20: case 21: case 22: case 23:
-				//case 24:
-				case 25:
-				//if((lat_array[rxTrack - 15] != -1) && (latitude[lat_array[rxTrack - 15]] != RXbyte)) {
-				if(latitude[lat_array[rxTrack - 15]] != RXbyte) {
-					latitude[lat_array[rxTrack - 15]] = RXbyte;
-					latitude_upd |= (1<<(lat_array[rxTrack-15]));
-				};
-				break;
-				case 27: case 28: case 29: case 30: case 31:
-				//case 32:
-				case 33: case 34: case 35: case 36:
-				//case 37:
-				case 38:
-				//if((lon_array[rxTrack - 27] != -1) && (longitude[lon_array[rxTrack - 27]] != RXbyte)) {
-				if(longitude[lon_array[rxTrack - 27]] != RXbyte) {
-					longitude[lon_array[rxTrack - 27]] = RXbyte;
-					longitude_upd |= (1<<(lon_array[rxTrack-27]));
-				};
-				break;
-				case 50: case 51: case 52: case 53: case 54: case 55:
-				if(date[clock_array[rxTrack - 50]] != RXbyte) {
-					date[clock_array[rxTrack - 50]] = RXbyte;
-					date_upd |= (1<<(clock_array[rxTrack-50]));
-				};
-				break;
-				case 13:
+			}
+			// fix status
+			if(field_id == 2) {
 				if(fix_status != RXbyte) {
 					fix_status = RXbyte;
 					fix_status_upd = TRUE;
 				}
-				break;
+			}
+			// latitude
+			if(field_id == 3) {
+				//if(latitude[lat_array[rxTrack - 15]] != RXbyte) {
+				if((lat_array[fieldTrack] != -1) && (latitude[lat_array[fieldTrack]] != RXbyte)) {
+					latitude[lat_array[fieldTrack]] = RXbyte;
+					latitude_upd |= (1<<(lat_array[fieldTrack]));
+				};
+			}
+			// longitude
+			//if(longitude[lon_array[rxTrack - 27]] != RXbyte) {
+			if((lon_array[fieldTrack] != -1) && (longitude[lon_array[fieldTrack]] != RXbyte)) {
+				longitude[lon_array[fieldTrack]] = RXbyte;
+				longitude_upd |= (1<<(lon_array[fieldTrack]));
+			};
+			// date
+			if(field_id == 9) {
+				if(date[clock_array[fieldTrack]] != RXbyte) {
+					date[clock_array[fieldTrack]] = RXbyte;
+					date_upd |= (1<<(clock_array[fieldTrack]));
+				};
 			}
 		}
 		if(frame_type == GGA) {
-			if(rxTrack == 40) {
-				if((used_sats / 10) != h2i(RXbyte)) {
-					used_sats_upd = TRUE;
-					used_sats %= 10;
-					used_sats += 10 * h2i(RXbyte);
+			if(field_id == 7) {
+				switch(fieldTrack) {
+					case 0:
+					if((used_sats / 10) != h2i(RXbyte)) {
+						used_sats_upd = TRUE;
+						used_sats %= 10;
+						used_sats += 10 * h2i(RXbyte);
+					}
+					break;
+					case 1:
+					if((used_sats % 10) != h2i(RXbyte)) {
+						used_sats_upd = TRUE;
+						used_sats -= used_sats % 10;
+						used_sats += h2i(RXbyte);
+					}
+					break;
 				}
 			}
-			if(rxTrack == 41) {
-				if((used_sats % 10) != h2i(RXbyte)) {
-					used_sats_upd = TRUE;
-					used_sats /= 10;
-					used_sats *= 10;
-					used_sats += h2i(RXbyte);
+			// hdop
+			if(field_id == 8) {
+				hdop_str[fieldTrack] = RXbyte;
+			}
+			// altitude
+			if(field_id == 9) {
+				// take care of HDOP
+				if(fieldTrack == 0) {
+					char *p = hdop_str;
+					hdop = 0;
+					while(*p) {
+						if(*p != '.') {
+							hdop *= 10;
+							hdop += h2i(*p);
+						}
+						++p;
+					}
 				}
+				alt_str[fieldTrack] = RXbyte;
+			}
+			// take care of altitude parsing
+			if((field_id == 10) && (fieldTrack == 0)) {
+				char *p = alt_str;
+				altitude = 0;
+				if(*p == '-')
+					++p;
+				while(*p) {
+					if(*p != '.') {
+						altitude *= 10;
+						altitude += h2i(*p);
+					}
+					++p;
+				}
+				if(alt_str[0] == '-')
+					altitude *= -1;
 			}
 		}
 
@@ -290,6 +346,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 		}
 
 		rxTrack++;
+		fieldTrack++;
 #if defined RX_BUFF_LENGTH
 	#if RX_BUFF_LENGTH == 128
 		rxTrack &= 0x7F; // 128 bytes buffer

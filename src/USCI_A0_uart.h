@@ -40,6 +40,11 @@ extern volatile uint16_t longitude_upd;
 extern volatile char latitude[];
 extern volatile uint16_t latitude_upd;
 
+extern volatile int16_t altitude;
+extern volatile char alt_str[];
+extern volatile uint8_t hdop;
+extern volatile char hdop_str[];
+
 void initUART(void);					//init the uart interface
 void putstring(const char *str);					//send string
 bool txBusy();
