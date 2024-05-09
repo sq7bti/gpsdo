@@ -129,7 +129,7 @@ void strprintf(char *p[], char *format, ...)
 				break;
 				case 'q':// Q8R8
 					i = va_arg(a, int);
-					if(c == 'i' && i < 0) {
+					if(i < 0) {
 						i = -i;
 						**p = '-';
 						++(*p);
@@ -155,7 +155,7 @@ void strprintf(char *p[], char *format, ...)
 				break;
 				case 'r':// Q4R12
 					i = va_arg(a, int);
-					if(c == 'i' && i < 0) {
+					if(i < 0) {
 						i = -i;
 						//putc('-');
 						**p = '-';

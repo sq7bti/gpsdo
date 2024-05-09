@@ -292,7 +292,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			if(field_id == 9) {
 				// take care of HDOP
 				if(fieldTrack == 0) {
-					char *p = hdop_str;
+					volatile char *p = hdop_str;
 					hdop = 0;
 					while(*p) {
 						if(*p != '.') {
@@ -306,7 +306,7 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			}
 			// take care of altitude parsing
 			if((field_id == 10) && (fieldTrack == 0)) {
-				char *p = alt_str;
+				volatile char *p = alt_str;
 				altitude = 0;
 				if(*p == '-')
 					++p;

@@ -22,5 +22,6 @@ typedef bool BOOL;
 void driver_tick(void);
 
 #define OVERCLOCK 20
+#define CAPTURE_MULT 50000
 
 #endif

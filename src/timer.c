@@ -1,7 +1,6 @@
 #include "timer.h"
 
 #define USE_10MHZ_INPUT_AS_TACLK 1
-#define CAPTURE_MULT 10000
 
 volatile uint8_t trigger_flags = 0;
 static volatile uint32_t millis = 0, seconds = 0;
@@ -32,7 +31,11 @@ uint32_t getSeconds() { return seconds; };
 uint32_t getOCXO() { return ocxo_count; };
 uint32_t getCAP() { return ((uint32_t)capture_overflow << 16) + capture_count; };
 uint16_t getPWM(void) { return pwm_output_duty; };
-bool getTrigFlag(uint8_t id) { return trigger_flags & (0x01 << id); };
+bool getTrigFlag(int8_t id) {
+  if(id == TRIGGER_ANY)
+    return trigger_flags != 0;
+  return trigger_flags & (0x01 << id);
+};
 void setTrigFlag(uint8_t id) { trigger_flags |= (0x01 << id); };
 void clearTrigFlag(uint8_t id) { trigger_flags &= ~(0x01 << id); };
 
@@ -222,19 +225,22 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       break;
     case TA1IV_TACCR1: // 0x02
       // rising edge of reference signal from GPS
-      if(TA1CCTL1 & CCI) {
-        current_rising_ref = TA1CCR1;
-        period_ref = current_rising_ref - previous_rising_ref;
-        previous_rising_ref = current_rising_ref;
-      }
+      current_rising_ref = TA1CCR1;
+      period_ref = current_rising_ref - previous_rising_ref;
+      previous_rising_ref = current_rising_ref;
+      // if in the meantime TA1IV_TACCR2 was also triggered wait to calculate it in vco ISR
+      //if(!(TA1IV & TA1IV_TACCR2))
+      phase_diff = current_rising_ref - current_rising_vco;
+      if(phase_diff < -1000)
+        phase_diff += 2000;
+      if(phase_diff > 1000)
+        phase_diff -= 2000;
       // it means ref is delayed, vco was just captured
       //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
       if(TA1CCTL2 & CCI) {
         if(!phase_driftrate_period) {
-          //new_phase_diff = current_rising_ref - (TA1IV & TA1IV_TACCR2)?TA1CCR2:current_rising_vco;
-          new_phase_diff = current_rising_ref - current_rising_vco;
           phase_driftrate = new_phase_diff - phase_diff;
-          phase_diff = new_phase_diff;
+          new_phase_diff = phase_diff;
           phase_driftrate_period = 10000;
         }
         --phase_driftrate_period;
@@ -244,19 +250,22 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       break;
     case TA1IV_TACCR2: // 0x04
       // rising edge of controlled signal from VCO
-      if(TA1CCTL2 & CCI) {
-        current_rising_vco = TA1CCR2;
-        period_vco = current_rising_vco - previous_rising_vco;
-        previous_rising_vco = current_rising_vco;
-      }
+      current_rising_vco = TA1CCR2;
+      period_vco = current_rising_vco - previous_rising_vco;
+      previous_rising_vco = current_rising_vco;
+      //if(!(TA1IV & TA1IV_TACCR1))
+      phase_diff = current_rising_ref - current_rising_vco;
+      if(phase_diff < -1000)
+        phase_diff += 2000;
+      if(phase_diff > 1000)
+        phase_diff -= 2000;
       // it means vco is delayed, ref was just captured
       //if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
       if(TA1CCTL1 & CCI) {
         if(!phase_driftrate_period) {
           //new_phase_diff = (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref - current_rising_vco;
-          new_phase_diff = current_rising_ref - current_rising_vco;
           phase_driftrate = new_phase_diff - phase_diff;
-          phase_diff = new_phase_diff;
+          new_phase_diff = phase_diff;
           phase_driftrate_period = 10000;
         }
         --phase_driftrate_period;
@@ -298,18 +307,21 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
     millis -= 10000;
     ++seconds;
     trigger_flags |= 1 << TRIGGER_SEC;
+    LPM0_EXIT;
   }
 
   --display_update;
   if(!display_update) {
     display_update = 2;
     trigger_flags |= 1 << TRIGGER_LCD;
+    LPM0_EXIT;
   }
 
   --adc_update;
   if(!adc_update) {
     adc_update = 128;
     trigger_flags |= 1 << TRIGGER_ADC;
+    LPM0_EXIT;
   }
 
   if(rx_busy) {
@@ -318,6 +330,7 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
   if(!log_update) {
     trigger_flags |= 1 << TRIGGER_LOG;
     log_update = 128;
+    LPM0_EXIT;
   } else
     --log_update;
 

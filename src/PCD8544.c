@@ -188,6 +188,7 @@ void writeDecToLCD(uint32_t i) {
 }
 
 void writeMHzToLCD(uint32_t i) {
+#if CAPTURE_MULT == 10000
   if((i/1000000) < 10)
     writeCharToLCD(' ');
   writeDecToLCD(i/1000000);
@@ -203,7 +204,15 @@ void writeMHzToLCD(uint32_t i) {
   if((i%1000) < 10)
     writeCharToLCD('0');
   writeDecToLCD(i%1000);
-  writeStringToLCD("MHz");
+#endif
+#if CAPTURE_MULT == 50000
+  if((i/5000000) < 10)
+    writeCharToLCD(' ');
+  writeDecToLCD(i/5);
+  writeCharToLCD(',');
+  writeDecToLCD(2*(i%5));
+#endif
+  writeStringToLCD(" MHz");
 }
 
 void writeQ88ToLCD(uint16_t i) {
@@ -300,7 +309,7 @@ void bargraph(uint8_t row, uint16_t val) {
   }
 };
 
-void phase_difference(uint8_t row, uint16_t val) {
+void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
   if((val == prev_pd_val) || (row > (LCD_MAX_Y/8)))
     return;
   if(prev_pd_val == 255) {
@@ -314,7 +323,10 @@ void phase_difference(uint8_t row, uint16_t val) {
         if(x == val) {
           writeToLCD(LCD5110_DATA, 0xFF);
         } else
-          writeToLCD(LCD5110_DATA, (x<val)?0x80:0x01);
+          writeToLCD(LCD5110_DATA, (x<val)?
+            ((x==marker)?0xF0:0x80)
+            :
+            ((x==marker)?0x0F:0x01));
       }
       ++x;
     }
@@ -323,7 +335,7 @@ void phase_difference(uint8_t row, uint16_t val) {
       setAddr(prev_pd_val, row);
       writeToLCD(LCD5110_DATA, 0x01);
       while(prev_pd_val < val-1) {
-        writeToLCD(LCD5110_DATA, (prev_pd_val==41)?0xAA:0x01);
+        writeToLCD(LCD5110_DATA, (prev_pd_val==41)?0xAA:((prev_pd_val==marker)?0x0F:0x01));
         ++prev_pd_val;
       }
       writeToLCD(LCD5110_DATA, 0xFF);
@@ -331,10 +343,10 @@ void phase_difference(uint8_t row, uint16_t val) {
       uint8_t x = val;
       writeToLCD(LCD5110_DATA, 0xFF);
       while(x < prev_pd_val-1) {
-        writeToLCD(LCD5110_DATA, (x==41)?0xAA:0x01);
+        writeToLCD(LCD5110_DATA, (x==41)?0xAA:((x==marker)?0x0F:0x01));
         ++x;
       }
-      writeToLCD(LCD5110_DATA, 0x80);
+      writeToLCD(LCD5110_DATA, ((x==marker)?0xF0:0x80));
       prev_pd_val = val;
     }
   }

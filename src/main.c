@@ -64,9 +64,9 @@
 #define NMEA_RMC_LAT 25
 #define NMEA_RMC_LNG 27
 
-#define KP +6
-#define KI -4
-#define KD +6
+#define KP (+6)
+#define KI (-2)
+#define KD (+4)
 
 // latitude
 // 0123456789A
@@ -157,10 +157,15 @@ extern bool ref_tracked;
 
 extern uint8_t txCount;
 
-int16_t error_current, error_previous;
+int16_t error_current, error_previous, error_max, error_min, error_delta;
 int16_t p_factor;
 int32_t i_factor;
 int16_t d_factor;
+uint16_t new_pwm;
+uint8_t kp = KP, ki = KI, kd = KD;
+
+uint16_t pid_loop_count = 0;
+uint16_t correction_period = 1, correction_timer = 0, correction_margin = 32;
 
 typedef enum {
   STARTUP = 0,
@@ -171,22 +176,11 @@ typedef enum {
 
 const char ctrl_state_name[] = { 's', 'w', 'l', 't'};
 
-void pid_controller() {
-  // track phase
-  error_current = target_phase_diff - phase_diff;
-  // +500 is angle of 90 degrees difference between REF and VCO
-  // phase_diff <-1000 ... +1000>
-  d_factor = (error_current - error_previous);
-  error_previous = error_current;
-  p_factor = error_previous;
-  i_factor += error_previous >> 4;
-  // p_factor <-500 .. + 1500>
-  setPWM(TA0CCR1_DEF
-          + (p_factor << KP)
-          + (i_factor << KI)
-          + (d_factor << KD)
-        );
-}
+//                   A5 T50.0 561C F:-5 E:-240 P:-240 I:-5441 D:-1
+//                   0000000000111111111122222222223333333333444444444455555555556666666666
+//                   0123456789012345678901234567890123456789012345678901234567890123456789
+char monitoring[] = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\r\n";
+char *p = &monitoring[0];
 
 const char warning[] = "start tracking; target phase diff ";
 
@@ -197,41 +191,89 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       next_state = WARM_UP;
     break;
     case WARM_UP:
-      if(getOCXOTemperature() > (47<<8))
+      if((getOCXOTemperature() > ((fix_status == 'A')?(35 << 8):(48 << 8))))
         next_state = LOCKING;
     break;
     case LOCKING:
       if((fix_status == 'A') && ref_tracked && vco_tracked) {
         target_phase_diff = phase_diff;
-        if(target_phase_diff < -500)
-          target_phase_diff = -500;
-        if(target_phase_diff > 500)
-            target_phase_diff = 500;
-        if((target_phase_diff > -10) && (target_phase_diff < 10)) {
-          if(phase_diff > 0)
-            target_phase_diff = 10;
+        if(target_phase_diff < -650)
+          target_phase_diff = -650;
+        if(target_phase_diff > 650)
+            target_phase_diff = 650;
+        if((target_phase_diff > -50) && (target_phase_diff < 50)) {
+          if(target_phase_diff > 0)
+            target_phase_diff = 50;
           else
-            target_phase_diff = -10;
+            target_phase_diff = -50;
         }
-        putstring(warning);
         // target phaes diff should be <-999 ... +999
-        char t_p_d[6];
-        char *p = &t_p_d[0];
-        while(txBusy());
-        strprintf(&p, "%i\r\n", target_phase_diff);
+        char *p = &monitoring[0];
+        strprintf(&p, "start tracking; target phase diff %c%i ... \r\n", target_phase_diff>0?'+':' ', target_phase_diff);
         *p = 0;
-        putstring(t_p_d);
+        putstring(monitoring);
+        while(txBusy());
         next_state = TRACKING;
+        kp = KP;
+        ki = KI;
+        kd = KD;
+        error_max = INT16_MIN;
+        error_min = INT16_MAX;
       }
     break;
     case TRACKING:
-      pid_controller();
+      // track phase
+      error_current = target_phase_diff - phase_diff;
+      // +500 is angle of 90 degrees difference between REF and VCO
+      // phase_diff <-1000 ... +1000>
+      d_factor = (error_current - error_previous);
+      error_previous = error_current;
+      p_factor = error_previous;
+      i_factor += error_previous >> 2;
+      // p_factor <-500 .. + 1500>
+
+      if(error_current > error_max)
+        error_max = error_current;
+      if(error_current < error_min)
+        error_min = error_current;
+
+      if(correction_timer)
+        --correction_timer;
+      else {
+        correction_timer = correction_period;
+        error_delta = error_max - error_min;
+        error_max = INT16_MIN;
+        error_min = INT16_MAX;
+      }
+
+      if(abs(error_current) < 64) {
+        if(abs(error_current) < 16) {
+          kp = KP-8;
+          ki = KI-4;
+          kd = KD-1;
+        } else {
+          kp = KP-5;
+          ki = KI-3;
+          kd = KD-1;
+        }
+      }
+
+      new_pwm = TA0CCR1_DEF
+                + (p_factor << kp)
+                + (i_factor << ki);
+      //          + (d_factor << KD);
+
+      int16_t delta_pwm = new_pwm - getPWM();
+
+      setPWM(getPWM() + delta_pwm);
+
       if(fix_status != 'A')
         next_state = LOCKING;
     break;
   }
   return next_state;
 }
+
 int setup(void) {
   initCPU();
   initUART();
@@ -294,32 +336,19 @@ int setup(void) {
 
   clearLCD();
   // 01:23:45
-  setAddr(12, 5);
-  writeCharToLCD(':');
-  setAddr(30, 5);
-  writeCharToLCD(':');
+  //setAddr(12, 5);
+  //writeCharToLCD(':');
+  //setAddr(30, 5);
+  //writeCharToLCD(':');
   // 20-04:24
-  setAddr(12, 4);
-  writeCharToLCD('-');
-  setAddr(30, 4);
-  writeCharToLCD('-');
+  //setAddr(12, 4);
+  //writeCharToLCD('-');
+  //setAddr(30, 4);
+  //writeCharToLCD('-');
 }
 
-#define NMEA_FIX 0
-
-uint8_t nmea_valid = 0;
-extern volatile bool rx_busy;
-extern volatile uint8_t log_update;
-
-bool direction = 1;
-
 int main(void) {
-
-  //                   0000000000111111111122222222223333333333444444444455555555556666666666
-  //                   0123456789012345678901234567890123456789012345678901234567890123456789
-  char monitoring[] = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\r\n";
-  char *p = &monitoring[0];
-  uint8_t x = 0, y = 0;
+  uint8_t x = 0, y = 0, y_min, y_max, y_scale = 4;
 
   setup();
   clearBank(1);
@@ -329,21 +358,114 @@ int main(void) {
   ctrl_state_t gpsdo_ctrl_state = STARTUP;
 
   while(1) {
+
     // execute to update fast changing values
     if(getTrigFlag(TRIGGER_LCD)) {
-      if(gpsdo_ctrl_state == TRACKING) {
+      switch(gpsdo_ctrl_state) {
+        case WARM_UP:
+        case LOCKING:
+          phase_difference(5, (phase_diff +
 #ifdef OVERCLOCK
-        phase_difference(3, (phase_diff + 1000) / 24);
+                                              1000
 #else
-        phase_difference(3, (phase_diff + 800) / 20);
+                                              800
 #endif /* OVERCLOCK */
+          ) / 24, ((target_phase_diff==32000)?-1:(target_phase_diff +
+#ifdef OVERCLOCK
+                                                1000
+#else
+                                                800
+#endif /* OVERCLOCK */
+          ) / 24));
+          //setAddr(0,1);
+          //writeWordToLCD(phase_diff);
+        break;
+        case TRACKING:
+          if(abs(error_current) > 32)
+            phase_difference(5, (phase_diff +
+#ifdef OVERCLOCK
+                                              1000
+#else
+                                              800
+#endif /* OVERCLOCK */
+            ) / 24, (target_phase_diff +
+#ifdef OVERCLOCK
+                                          1000
+#else
+                                          800
+#endif /* OVERCLOCK */
+            ) / 24);
+          else {
+            setAddr(0, 5);
+            writeMHzToLCD(getOCXO());
+          }
+          //setAddr(84 - (6*4), 1);
+          setAddr(42 - (6*2), 1);
+          writeWordToLCD(getPWM());
+          writeCharToLCD(' ');
+
+          //=================
+          y = 24 - (error_current >> y_scale); ///1); //(int8_t)((getPWM() - TA0CCR1_DEF) >> 3);
+          if(y > y_max)
+            y_max = y;
+          if(y < y_min)
+            y_min = y;
+          //y = 40 - (getPWM() >> 11);
+          uint8_t x_sc = 84 - 6*((y_scale > 2)?4:3);
+          if(x < x_sc) {
+            setAddr(x, 1);
+            writeToLCD(LCD5110_DATA, 0);
+            setAddr(x, 4);
+            writeToLCD(LCD5110_DATA, 0);
+          }
+          if(x == 0) {
+            // 5 = +-512
+            // 4 = +-256
+            // 3 = +-128
+            // 2 = +-64
+            // 1 = +-32
+            // 0 = +-16
+            // y_max = 24 - E -> E = 24 - y_max
+            setAddr(x_sc, 1);
+            writeCharToLCD('+');
+            writeDecToLCD((1 << (4 + y_scale)) - 1);
+            setAddr(x_sc, 4);
+            writeCharToLCD('-');
+            writeDecToLCD((1 << (4 + y_scale)));
+          }
+
+          setAddr(x, 2); writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 3); writeToLCD(LCD5110_DATA, 0);
+
+          if(((x > x_sc) && (y > 16) && (y < 32)) || (x < x_sc))
+            pixel(x,y);
+          if((x%5) == 0)
+            pixel(x,24);
+          ++x;
+          if(x > 84) {
+            // 8 .. 15
+            // 16 .. 23
+            // 24 .. 31
+            // 32 .. 39
+            if((y_scale != 0) && (y_max < 32) && (y_min > 16))
+              --y_scale;
+            if((y_scale < 5) && ((y_max > 39) || (y_min < 8)))
+              ++y_scale;
+            y_min = 40;
+            y_max = 8;
+            x = 0;
+          }
+          if(x < x_sc) {
+            setAddr(x, 1); writeToLCD(LCD5110_DATA, 0xFF);
+            setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
+          }
+          setAddr(x, 2); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 3); writeToLCD(LCD5110_DATA, 0xFF);
+          //=================
+        break;
+        default:
+        break;
       }
-      //setAddr(84 - 6, 4);
-      //setInverse(rx_busy);
-      //writeCharToLCD('R');
-      //setInverse(FALSE);
-      //setAddr(84 - (3*6), 4);
-      //writeDecToLCD(log_update);
       clearTrigFlag(TRIGGER_LCD);
     }
 
@@ -352,16 +474,27 @@ int main(void) {
       p = &monitoring[0];
       while(txBusy());
       //strprintf(&p, "PWM %x ph %i P:%i I:%i D:%i\r\n", getPWM(), phase_diff, p_factor, i_factor, d_factor);
-      //strprintf(&p, "%c%i T%q P%x %i E:%i P:%i I:%i D:%i\r\n",
+      //strprintf(&p, "%c%i T%q P%x %i E:%i P:%i I:%l D:%i\r\n",
       //        fix_status, used_sats, getOCXOTemperature(), getPWM(),
       //        getOCXO() - 10000000, error_current,
       //        p_factor, i_factor, d_factor);
-      //strprintf(&p, "%c%i T%q %x F:%l E:%i P:%i I:%i D:%i\r\n",
-      //              fix_status, used_sats, getOCXOTemperature(), getPWM(),
-      //              getOCXO() - 10000000UL, error_current,
-      //              p_factor, i_factor, d_factor);
-      strprintf(&p, "F%c%i T%q POT %x = %rV %l\r\n",
-              fix_status, used_sats, getOCXOTemperature(), getPhaseDet(), getPhaseDet(), getOCXO());
+#if CAPTURE_MULT == 10000
+      strprintf(&p, "%c%i T%q %x F%l E%i eD%i P%i I%l D%i\r\n",
+#endif
+#if CAPTURE_MULT == 50000
+      strprintf(&p, "%c%i T%q %x F%q E%i eD%i P%i I%l D%i\r\n",
+#endif
+                    fix_status, used_sats, getOCXOTemperature(), getPWM(),
+#if CAPTURE_MULT == 10000
+                    getOCXO() - 10000000UL,
+#endif
+#if CAPTURE_MULT == 50000
+                    ((int16_t)(getOCXO() - 50000000UL) << 8)/5,
+#endif
+                    error_current, error_delta,
+                    p_factor, i_factor, d_factor);
+      //strprintf(&p, "F%c%i T%q POT %x = %rV %l\r\n",
+      //        fix_status, used_sats, getOCXOTemperature(), getPhaseDet(), getPhaseDet(), getOCXO());
       //strprintf(&p, "Int %q Oven %q ADC %r\r\n",
       //            getIntTemperature(), getOCXOTemperature(), getPhaseDet());
       *p = 0;
@@ -371,81 +504,30 @@ int main(void) {
 
     // executed once a second (time!)
     if(getTrigFlag(TRIGGER_SEC)) {
-
-      //if(fix_status == 'A') {
-      if(gpsdo_ctrl_state == TRACKING) {
-        //setAddr(0, 2);
-        //clearBank(2);
-
-        //if((getSeconds()%10) == 0) {
-        //  target_phase_diff += 250;
-        //  target_phase_diff %= 1000;
-        //}
-
-        //writeStringToLCD("e");
-        //if(error_current != 0)
-        //  writeCharToLCD(error_current > 0?'+':'-');
-        //else
-        //  writeCharToLCD(' ');
-        //writeDecToLCD(abs(error_current));
-
-        //writeStringToLCD("p");
-        //if(p_factor != 0)
-        //  writeCharToLCD(p_factor > 0?'+':'-');
-        //else
-        //  writeCharToLCD(' ');
-        //writeDecToLCD(abs(p_factor));
-
-        //writeStringToLCD("i");
-        //if(i_factor != 0)
-        //  writeCharToLCD(i_factor > 0?'+':'-');
-        //else
-        //  writeCharToLCD(' ');
-        //writeDecToLCD(abs(i_factor));
-
-        //writeStringToLCD("d");
-        //if(d_factor != 0)
-        //  writeCharToLCD(d_factor > 0?'+':'-');
-        //else
-        //  writeCharToLCD(' ');
-        //writeDecToLCD(abs(d_factor));
-      }
-
-      //if(gpsdo_ctrl_state == LOCKING) {
-      //  writeMHzToLCD(getOCXO());
-      //}
-
-      //setAddr(84 - (5 * 6), 4);
-      //writeDecToLCD(gpsdo_ctrl_state);
-      //if((getSeconds() % 20) == 0) {
-      //  setAddr(0, 3);
-      //  clearBank(3);
-      //  writeStringToLCD(latitude);
-      //}
-      //if((getSeconds() % 20) == 10) {
-      //  setAddr(0, 3);
-      //  clearBank(3);
-      //  writeStringToLCD(longitude);
-      //}
-
-      if(time_upd) {
-        for(int c = 0; c < 8; ++c) {
-          if(time_upd & (1<<c)) {
-            setAddr(6 * c, 5);
-            writeCharToLCD(time[c]);
-            time_upd &= ~(1<<c);
-          }
-        }
-      }
-      if(date_upd) {
-        for(int c = 0; c < 8; ++c) {
-          if(date_upd & (1<<c)) {
-            //setAddr(clock_array[c], 4);
-            setAddr(6 * c, 4);
-            writeCharToLCD(date[c]);
-            date_upd &= ~(1<<c);
-          }
-        }
+      switch(gpsdo_ctrl_state) {
+        case TRACKING:
+        break;
+        case WARM_UP:
+        //case LOCKING:
+          // draw in lines 1 through 4 (8 .. 40) - range 32,
+          // temperature changes from ~20 .. 52 - range 32
+          // getOCXOTemperature -> Q88
+          y = 40 - ((getOCXOTemperature() - (20 << 8)) >> 8);
+          setAddr(x, 1); writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 2); writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 3); writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 4); writeToLCD(LCD5110_DATA, 0);
+          pixel(x,y);
+          ++x;
+          if(x > 84)
+            x = 0;
+          setAddr(x, 1); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 2); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 3); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
+        break;
+        default:
+        break;
       }
 
       clearTrigFlag(TRIGGER_SEC);
@@ -477,7 +559,10 @@ int main(void) {
       setInverse(FALSE);
 
       writeCharToLCD(' ');
+      if(gpsdo_ctrl_state == TRACKING)
+        setInverse(abs(error_current) < 32);
       writeCharToLCD(ctrl_state_name[gpsdo_ctrl_state]);
+      setInverse(FALSE);
 
       //if(fix_status_upd || used_sats_upd) {
         writeCharToLCD(fix_status);
@@ -486,102 +571,69 @@ int main(void) {
         used_sats_upd = FALSE;
       //}
 
-      if(gpsdo_ctrl_state == TRACKING) {
-        //setAddr(0, 1);
-        //clearBank(1);
+      switch(gpsdo_ctrl_state) {
+        case TRACKING:
+          //setAddr(0, 1);
+          //clearBank(1);
 
-        //writeQ4CToLCD(getPhaseDet());
-        //writeCharToLCD('V');
+          //writeQ4CToLCD(getPhaseDet());
+          //writeCharToLCD('V');
 
-        //writeWordToLCD(phase_comp_raw_value);
-        //writeStringToLCD(" = 0x");
-        //if(phase_diff != 0)
-        //  writeCharToLCD(phase_diff > 0?'+':'-');
-        //else
-        //  writeCharToLCD(' ');
-        //writeDecToLCD(abs(phase_diff));
-        //writeCharToLCD(' ');
+          //writeWordToLCD(phase_comp_raw_value);
+          //writeStringToLCD(" = 0x");
+          //if(phase_diff != 0)
+          //  writeCharToLCD(phase_diff > 0?'+':'-');
+          //else
+          //  writeCharToLCD(' ');
+          //writeDecToLCD(abs(phase_diff));
+          //writeCharToLCD(' ');
 
-        //if(target_phase_diff != 0)
-        //  writeCharToLCD(target_phase_diff > 0?'+':'-');
-        //else
-        //  writeCharToLCD(' ');
-        //writeDecToLCD(abs(target_phase_diff));
-        //writeCharToLCD(' ');
+          //if(target_phase_diff != 0)
+          //  writeCharToLCD(target_phase_diff > 0?'+':'-');
+          //else
+          //  writeCharToLCD(' ');
+          //writeDecToLCD(abs(target_phase_diff));
+          //writeCharToLCD(' ');
 
-        //writeQ4CToLCD(getPhaseDet());
-        //writeCharToLCD('V');
-        //writeCharToLCD(' ');
-        //writeWordToLCD(getPWM());
+          //writeQ4CToLCD(getPhaseDet());
+          //writeCharToLCD('V');
+          //writeCharToLCD(' ');
+          //writeWordToLCD(getPWM());
 
-        //if(phase_driftrate != 0)
-        //  writeCharToLCD(phase_driftrate > 0?'+':'-');
-        //else
-        //  writeCharToLCD(' ');
-        //writeDecToLCD(abs(2 * phase_driftrate));
-        //writeStringToLCD("Hz");
-      }
-
-      if(gpsdo_ctrl_state == WARM_UP) {
-        // draw in lines 1 and 2 (8 .. 23) - range 16,
-        // temperature changes from ~20 .. 47 - range 27
-        // getOCXOTemperature -> Q88
-        y = 24 - ((getOCXOTemperature() - (20 << 8)) >> 9);
-        setAddr(x, 1);
-        writeToLCD(LCD5110_DATA, 0);
-        setAddr(x, 2);
-        writeToLCD(LCD5110_DATA, 0);
-        pixel(x,y);
-        ++x;
-        if(x > 84)
-          x = 0;
-        setAddr(x, 1);
-        writeToLCD(LCD5110_DATA, 0xFF);
-        setAddr(x, 2);
-        writeToLCD(LCD5110_DATA, 0xFF);
-      }
-      if(gpsdo_ctrl_state == TRACKING) {
-        y = 16 - (error_current); ///1); //(int8_t)((getPWM() - TA0CCR1_DEF) >> 3);
-        setAddr(x, 1);
-        writeToLCD(LCD5110_DATA, 0);
-        setAddr(x, 2);
-        writeToLCD(LCD5110_DATA, 0);
-        pixel(x,y);
-        ++x;
-        if(x > 84)
-          x = 0;
-        setAddr(x, 1);
-        writeToLCD(LCD5110_DATA, 0xFF);
-        setAddr(x, 2);
-        writeToLCD(LCD5110_DATA, 0xFF);
-
-        setAddr(84 - 6*4, 4);
-        //writeWordToLCD(getPWM() - TA0CCR1_DEF);
-        //writeStringToLCD("e");
-        if(error_current != 0)
-          writeCharToLCD(error_current > 0?'+':'-');
-        else
-          writeCharToLCD(' ');
-        writeDecToLCD(abs(error_current));
-      }
-      if(gpsdo_ctrl_state == LOCKING) {
-        setAddr(0, 3);
-        clearBank(3);
+          //if(phase_driftrate != 0)
+          //  writeCharToLCD(phase_driftrate > 0?'+':'-');
+          //else
+          //  writeCharToLCD(' ');
+          //writeDecToLCD(abs(2 * phase_driftrate));
+          //writeStringToLCD("Hz");
+        break;
+        case WARM_UP:
+        break;
+        case LOCKING:
+        {
+          y_scale = 4;
+          //setAddr(0, 3);
+          //clearBank(3);
 #if 1
-        char sbuff[15];
-        char *t = &sbuff[0];
-        strprintf(&t, "%rV %q%cC", getPhaseDet(), getIntTemperature(), 0x7F);
-        *t = 0;
-        writeStringToLCD(sbuff);
+          //char sbuff[15];
+          //char *t = &sbuff[0];
+          //strprintf(&t, "%rV %q%cC", getPhaseDet(), getIntTemperature(), 0x7F);
+          //*t = 0;
+          //writeStringToLCD(sbuff);
 #else
-        writeQ4CToLCD(getPhaseDet());
-        writeCharToLCD('V');
-        writeCharToLCD(' ');
-        writeQ88ToLCD(getIntTemperature());
-        writeCharToLCD(0x7F);
-        writeCharToLCD('C');
+          //writeQ4CToLCD(getPhaseDet());
+          //writeCharToLCD('V');
+          //writeCharToLCD(' ');
+          //writeQ88ToLCD(getIntTemperature());
+          //writeCharToLCD(0x7F);
+          //writeCharToLCD('C');
 #endif
+        }
+        break;
+        default:
+        break;
       }
+
       clearTrigFlag(TRIGGER_ADC);
     }
 
@@ -589,6 +641,7 @@ int main(void) {
       gpsdo_ctrl_state = controller(gpsdo_ctrl_state);
     }
 
-    LPM0;
+    if(0) //!getTrigFlag(TRIGGER_ANY))
+      LPM0;
   } // eof while()
 } // eof main
