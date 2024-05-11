@@ -133,37 +133,37 @@ static uint8_t inverse = 0x00;
 // LCD functions implementation
 
 void setAddr(unsigned char xAddr, unsigned char yAddr) {
-    writeToLCD(LCD5110_COMMAND, PCD8544_SETXADDR | xAddr);
-    writeToLCD(LCD5110_COMMAND, PCD8544_SETYADDR | yAddr);
+  writeToLCD(LCD5110_COMMAND, PCD8544_SETXADDR | xAddr);
+  writeToLCD(LCD5110_COMMAND, PCD8544_SETYADDR | yAddr);
 }
 
 void writeToLCD(unsigned char dataCommand, unsigned char data) {
-    LCD5110_SELECT;
+  LCD5110_SELECT;
 
-    if(dataCommand) {
-        LCD5110_SET_DATA;
-    } else {
-        LCD5110_SET_COMMAND;
-    }
+  if(dataCommand) {
+      LCD5110_SET_DATA;
+  } else {
+      LCD5110_SET_COMMAND;
+  }
 
-    UCB0TXBUF = data;
-    while(!(IFG2 & UCB0TXIFG));
+  UCB0TXBUF = data;
+  while(!(IFG2 & UCB0TXIFG));
 
-    LCD5110_DESELECT;
+  LCD5110_DESELECT;
 }
 
 void initLCD() {
-    int i;
-    LCD5110_SET_COMMAND;
-    for(i = 16; i > 0; --i)
-      __delay_cycles(100000);
+  int i;
+  LCD5110_SET_COMMAND;
+  for(i = 16; i > 0; --i)
+    __delay_cycles(100000);
 
-    writeToLCD(LCD5110_COMMAND, PCD8544_FUNCTIONSET | PCD8544_EXTENDEDINSTRUCTION);
-    writeToLCD(LCD5110_COMMAND, PCD8544_SETVOP | 0x3F);
-    writeToLCD(LCD5110_COMMAND, PCD8544_SETTEMP | 0x02);
-    writeToLCD(LCD5110_COMMAND, PCD8544_SETBIAS | 0x03);
-    writeToLCD(LCD5110_COMMAND, PCD8544_FUNCTIONSET);
-    writeToLCD(LCD5110_COMMAND, PCD8544_DISPLAYCONTROL | PCD8544_DISPLAYNORMAL);
+  writeToLCD(LCD5110_COMMAND, PCD8544_FUNCTIONSET | PCD8544_EXTENDEDINSTRUCTION);
+  writeToLCD(LCD5110_COMMAND, PCD8544_SETVOP | 0x3F);
+  writeToLCD(LCD5110_COMMAND, PCD8544_SETTEMP | 0x02);
+  writeToLCD(LCD5110_COMMAND, PCD8544_SETBIAS | 0x03);
+  writeToLCD(LCD5110_COMMAND, PCD8544_FUNCTIONSET);
+  writeToLCD(LCD5110_COMMAND, PCD8544_DISPLAYCONTROL | PCD8544_DISPLAYNORMAL);
 }
 
 void setInverse(bool s) {
@@ -171,23 +171,38 @@ void setInverse(bool s) {
 };
 
 void writeCharToLCD(char c) {
-    unsigned char i;
-    for(i = 0; i < 5; i++) {
-        writeToLCD(LCD5110_DATA, inverse^font[c - 0x20][i]);
-    }
-    writeToLCD(LCD5110_DATA, inverse);
+  unsigned char i;
+  for(i = 0; i < 5; i++) {
+      writeToLCD(LCD5110_DATA, inverse^font[c - 0x20][i]);
+  }
+  writeToLCD(LCD5110_DATA, inverse);
 }
 
 void writeDecToLCD(uint32_t i) {
-    if(i < 10)
-      writeCharToLCD(i2h(i));
-    else {
-      writeDecToLCD(i/10);
-      writeCharToLCD(i2h(i%10));
+  if(i < 10)
+    writeCharToLCD(i2h(i));
+  else {
+    writeDecToLCD(i/10);
+    writeCharToLCD(i2h(i%10));
+  }
+}
+
+void writeIntToLCD(int32_t i) {
+  if(i != 0) {
+    writeCharToLCD(' ');
+  } else {
+    if(i > 0) {
+      writeCharToLCD('+');
+    } else {
+      writeCharToLCD('-');
+      i = -i;
     }
+  }
+  writeDecToLCD(i);
 }
 
 void writeMHzToLCD(uint32_t i) {
+  writeCharToLCD(' ');
 #if CAPTURE_MULT == 10000
   if((i/1000000) < 10)
     writeCharToLCD(' ');
@@ -212,7 +227,7 @@ void writeMHzToLCD(uint32_t i) {
   writeCharToLCD(',');
   writeDecToLCD(2*(i%5));
 #endif
-  writeStringToLCD(" MHz");
+  writeStringToLCD("MHz");
 }
 
 void writeQ88ToLCD(uint16_t i) {
@@ -267,13 +282,13 @@ void pixel(uint8_t x, uint8_t y) {
 };
 
 void clearBank(unsigned char bank) {
-    setAddr(0, bank);
-    int i = 0;
-    while(i < PCD8544_HPIXELS) {
-        writeToLCD(LCD5110_DATA, 0);
-        i++;
-    }
-    setAddr(0, bank);
+  setAddr(0, bank);
+  int i = 0;
+  while(i < PCD8544_HPIXELS) {
+      writeToLCD(LCD5110_DATA, 0);
+      i++;
+  }
+  setAddr(0, bank);
 }
 
 void bargraph(uint8_t row, uint16_t val) {

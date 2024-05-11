@@ -1,6 +1,7 @@
 #include "timer.h"
 
 #define USE_10MHZ_INPUT_AS_TACLK 1
+#define PHASE_DIFF_AVG 7
 
 volatile uint8_t trigger_flags = 0;
 static volatile uint32_t millis = 0, seconds = 0;
@@ -20,7 +21,8 @@ volatile uint16_t period_vco = 0;
 
 // positive means VCO is ahead of GPS signal
 // negative means VCO is behind GPS signal
-volatile int16_t phase_diff = 0, phase_diff_prev = 0, new_phase_diff;
+volatile int32_t phase_diff = 0;
+volatile int16_t phase_diff_prev = 0, new_phase_diff, raw_phase_diff;
 volatile int16_t phase_driftrate_period = 10000;
 volatile int16_t phase_driftrate = 0;
 volatile bool vco_tracked = FALSE;
@@ -46,6 +48,8 @@ void setPWM(uint16_t p) {
     pwm_output_duty = 0xFFF8;
   pwm_output_duty = p;
 };
+
+int16_t getPhaseDiff(void) { return (int16_t)(phase_diff >> PHASE_DIFF_AVG); };
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
@@ -230,11 +234,13 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       previous_rising_ref = current_rising_ref;
       // if in the meantime TA1IV_TACCR2 was also triggered wait to calculate it in vco ISR
       //if(!(TA1IV & TA1IV_TACCR2))
-      phase_diff = current_rising_ref - current_rising_vco;
-      if(phase_diff < -1000)
-        phase_diff += 2000;
-      if(phase_diff > 1000)
-        phase_diff -= 2000;
+      raw_phase_diff = current_rising_ref - current_rising_vco;
+      if(raw_phase_diff < -1000)
+        raw_phase_diff += 2000;
+      if(raw_phase_diff > 1000)
+        raw_phase_diff -= 2000;
+      phase_diff -= phase_diff >> PHASE_DIFF_AVG;
+      phase_diff += raw_phase_diff;
       // it means ref is delayed, vco was just captured
       //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
       if(TA1CCTL2 & CCI) {
@@ -254,11 +260,13 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       period_vco = current_rising_vco - previous_rising_vco;
       previous_rising_vco = current_rising_vco;
       //if(!(TA1IV & TA1IV_TACCR1))
-      phase_diff = current_rising_ref - current_rising_vco;
-      if(phase_diff < -1000)
-        phase_diff += 2000;
-      if(phase_diff > 1000)
-        phase_diff -= 2000;
+      raw_phase_diff = current_rising_ref - current_rising_vco;
+      if(raw_phase_diff < -1000)
+        raw_phase_diff += 2000;
+      if(raw_phase_diff > 1000)
+        raw_phase_diff -= 2000;
+      phase_diff -= phase_diff >> PHASE_DIFF_AVG;
+      phase_diff += raw_phase_diff;
       // it means vco is delayed, ref was just captured
       //if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
       if(TA1CCTL1 & CCI) {
@@ -307,6 +315,8 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
     millis -= 10000;
     ++seconds;
     trigger_flags |= 1 << TRIGGER_SEC;
+    if(!(seconds%5))
+      trigger_flags |= 1 << TRIGGER_SLW;
     LPM0_EXIT;
   }
 
@@ -337,5 +347,7 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
   if(!(ADC10CTL1 & ADC10BUSY)) {
       ADC10CTL0 |= ENC | ADC10ON | ADC10SC;             // Sampling and conversion start
   }
-  //P2OUT ^= BIT0;
+
+  trigger_flags |= 1 << TRIGGER_PID;
+  LPM0_EXIT;
 }
