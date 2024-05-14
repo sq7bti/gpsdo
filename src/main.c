@@ -59,10 +59,14 @@
 #include "adc.h"
 #include "printf.h"
 
+// KP=3 too weak
 #define KP 5
 // KI IS !!!!NEGATIVE!!!!
-#define KI 8
+#define KI 7
 #define KD 5
+
+#define MAX_CAPTURE 650
+#define MIN_CAPTURE 50
 
 /* WDT is clocked by fACLK (assumed 10kHz) */
 #define WDT_XDLY_3267       (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL)                 /* 3267.8ms  " /32768 */
@@ -124,13 +128,12 @@ void initSPI(void) {
   UCB0CTL1 &= ~UCSWRST;               // clear SW
 }
 
-int16_t target_phase_diff = 32000;
-uint16_t temp_phase_diff;
 
 extern bool vco_tracked;
 extern bool ref_tracked;
 
 int16_t error_current, error_previous, error_max, error_min, error_delta;
+//extern volatile uint16_t target_phase_diff;
 int16_t p_factor;
 int32_t i_factor;
 int16_t d_factor;
@@ -155,8 +158,6 @@ const char ctrl_state_name[] = { 's', 'w', 'l', 't'};
 char monitoring[] = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\r\n";
 char *p = &monitoring[0];
 
-const char warning[] = "start tracking; target phase diff ";
-
 ctrl_state_t controller(ctrl_state_t current_state) {
   ctrl_state_t next_state = current_state;
   switch(current_state) {
@@ -171,35 +172,40 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         setAddr(7*6, 3);
         writeStringToLCD("for fix");
         next_state = LOCKING;
+        setTargetPhaseDiff(0);
       }
     break;
     case LOCKING:
       if((fix_status == 'A') && ref_tracked && vco_tracked) {
-        target_phase_diff = getPhaseDiff();
-        if(target_phase_diff < -750)
-          target_phase_diff = -750;
-        if(target_phase_diff > 750)
-            target_phase_diff = 750;
-        if((target_phase_diff > -15) && (target_phase_diff < 15)) {
-          if(target_phase_diff > 0)
-            target_phase_diff = 15;
+        if((getPhaseDiff() > -MIN_CAPTURE) && (getPhaseDiff() < MIN_CAPTURE)) {
+          if(getPhaseDiff() > 0)
+            setTargetPhaseDiff(MIN_CAPTURE);
           else
-            target_phase_diff = -15;
+            setTargetPhaseDiff(-MIN_CAPTURE);
+        } else {
+          if(getPhaseDiff() < -MAX_CAPTURE)
+            setTargetPhaseDiff(-MAX_CAPTURE);
+          else {
+            if(getPhaseDiff() > MAX_CAPTURE)
+              setTargetPhaseDiff(MAX_CAPTURE);
+            else
+              setTargetPhaseDiff(getPhaseDiff());
+            }
         }
+        kp = KP;
+        ki = KI;
+        kd = KD;
         // target phaes diff should be <-999 ... +999
         char *p = &monitoring[0];
-        strprintf(&p, "start tracking; target phase diff %c%i ... \r\n", target_phase_diff>0?'+':' ', target_phase_diff);
+        strprintf(&p, "PID: %i/%i/%i; start tracking %c%i ... \r\n", kp, ki, kd, getTargetPhaseDiff()>0?'+':' ', getTargetPhaseDiff());
         *p = 0;
         putstring(monitoring);
         while(txBusy());
         next_state = TRACKING;
-        kp = KP;
-        ki = KI;
-        kd = KD;
         error_max = INT16_MIN;
         error_min = INT16_MAX;
         p = &monitoring[0];
-        strprintf(&p, "fix sats temp pwm freq error delta P I I D\r\n");
+        strprintf(&p, "fix sats temp pwm freq pref pvco error delta P I I D\r\n");
         *p = 0;
         putstring(monitoring);
         while(txBusy());
@@ -207,7 +213,9 @@ ctrl_state_t controller(ctrl_state_t current_state) {
     break;
     case TRACKING:
       // track phase
-      error_current = target_phase_diff - getPhaseDiff();
+      // POSITIVE error - we need to chase Ref
+      // NEGATIVE error - we need to slow down and let REF catch up
+      error_current = getPhaseDiff(); // - getTargetPhaseDiff();
 
       if(error_current > error_max)
         error_max = error_current;
@@ -333,7 +341,7 @@ int main(void) {
 #else
                                               800
 #endif /* OVERCLOCK */
-          ) / 24, ((target_phase_diff==32000)?-1:(target_phase_diff +
+          ) / 24, ((getTargetPhaseDiff()==INT16_MAX)?-1:(getTargetPhaseDiff() +
 #ifdef OVERCLOCK
                                                 1000
 #else
@@ -351,7 +359,7 @@ int main(void) {
 #else
                                               800
 #endif /* OVERCLOCK */
-            ) / 24, (target_phase_diff +
+            ) / 24, (getTargetPhaseDiff() +
 #ifdef OVERCLOCK
                                           1000
 #else
@@ -366,7 +374,7 @@ int main(void) {
           //setAddr(42 - (6*2), 1);
           setAddr(0, 1);
           writeWordToLCD(getPWM());
-          writeCharToLCD(' ');
+          //writeCharToLCD(' ');
 
           //=================
           //=================
@@ -388,19 +396,29 @@ int main(void) {
       //        p_factor, i_factor, d_factor);
       strprintf(&p,
 #if CAPTURE_MULT == 10000
-                    "%c %i %q %x %l %i %i %i %l %l %i\r\n",
+                    "%c %i %q %x %l %i %i %i %i %i %l %l %i\r\n",
 #endif
 #if CAPTURE_MULT == 50000
-                    //"%c%i T%q %x F%q E%i eD%i P%i I%l %l D%i\r\n",
-                    "%c %i %q %x %q %i %i %i %l %l %i\r\n",
+                    //"%c%i T PWM F ref vco E eD P  i Il D\r\n",
+                    "%c %i %q %x %q %i %i %i %i %i %l %l %i\r\n",
 #endif
                     fix_status, used_sats, getOCXOTemperature(), getPWM(),
-#if CAPTURE_MULT == 10000
+#ifdef USE_10MHZ_INPUT_AS_TACLK
+  #if CAPTURE_MULT == 10000
                     getOCXO() - 10000000UL,
+  #endif
+  #if CAPTURE_MULT == 50000
+                    (((int16_t)(getOCXO() - 50000000UL)) << 8)/5,
+  #endif
+#else
+  #if CAPTURE_MULT == 10000
+                    getOCXO(),
+  #endif
+  #if CAPTURE_MULT == 50000
+                    getOCXO(),
+  #endif
 #endif
-#if CAPTURE_MULT == 50000
-                    ((((int16_t)(getOCXO() - 50000000UL)) << 8) - 0x0000)/5,
-#endif
+                    getPeriodRef(), getPeriodVCO(),
                     error_current, error_delta,
                     p_factor, i_factor >> KI, i_factor, d_factor);
       //strprintf(&p, "F%c%i T%q POT %x = %rV %l\r\n",
@@ -565,7 +583,7 @@ int main(void) {
           //writeIntToLCD(getPhaseDiff());
           //writeCharToLCD(' ');
 
-          //writeIntToLCD(target_phase_diff);
+          //writeIntToLCD(getTargetPhaseDiff());
           //writeCharToLCD(' ');
 
           //writeQ4CToLCD(getPhaseDet());

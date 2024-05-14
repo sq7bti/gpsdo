@@ -1,7 +1,7 @@
 #include "timer.h"
 
-#define USE_10MHZ_INPUT_AS_TACLK 1
-#define PHASE_DIFF_AVG 7
+#define PHASE_DIFF_AVG 3
+#define PERIOD_AVG 3
 
 volatile uint8_t trigger_flags = 0;
 static volatile uint32_t millis = 0, seconds = 0;
@@ -22,6 +22,7 @@ volatile uint16_t period_vco = 0;
 // positive means VCO is ahead of GPS signal
 // negative means VCO is behind GPS signal
 volatile int32_t phase_diff = 0;
+volatile int16_t target_phase_diff = INT16_MAX;
 volatile int16_t phase_diff_prev = 0, new_phase_diff, raw_phase_diff;
 volatile int16_t phase_driftrate_period = 10000;
 volatile int16_t phase_driftrate = 0;
@@ -50,6 +51,11 @@ void setPWM(uint16_t p) {
 };
 
 int16_t getPhaseDiff(void) { return (int16_t)(phase_diff >> PHASE_DIFF_AVG); };
+int16_t getTargetPhaseDiff() { return target_phase_diff; }; // >> PHASE_DIFF_AVG; };
+void setTargetPhaseDiff(int16_t p) { target_phase_diff = p; }; // << PHASE_DIFF_AVG; };
+
+uint16_t getPeriodRef() { return period_ref >> PERIOD_AVG; };
+uint16_t getPeriodVCO() { return period_vco >> PERIOD_AVG; };
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
@@ -230,20 +236,23 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
     case TA1IV_TACCR1: // 0x02
       // rising edge of reference signal from GPS
       current_rising_ref = TA1CCR1;
-      period_ref = current_rising_ref - previous_rising_ref;
+      period_ref -= period_ref >> PERIOD_AVG;
+      period_ref += current_rising_ref - previous_rising_ref;
       previous_rising_ref = current_rising_ref;
       // if in the meantime TA1IV_TACCR2 was also triggered wait to calculate it in vco ISR
       //if(!(TA1IV & TA1IV_TACCR2))
-      raw_phase_diff = current_rising_ref - current_rising_vco;
-      if(raw_phase_diff < -1000)
-        raw_phase_diff += 2000;
-      if(raw_phase_diff > 1000)
-        raw_phase_diff -= 2000;
-      phase_diff -= phase_diff >> PHASE_DIFF_AVG;
-      phase_diff += raw_phase_diff;
-      // it means ref is delayed, vco was just captured
       //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
+      // VCO is already high
+      // it means ref is delayed, vco was just captured
+      // phase_diff is NEGATIVE
       if(TA1CCTL2 & CCI) {
+        raw_phase_diff = current_rising_vco - current_rising_ref - target_phase_diff;
+        if(raw_phase_diff < -1000)
+          raw_phase_diff += period_ref;
+        if(raw_phase_diff > 1000)
+          raw_phase_diff -= period_ref;
+        phase_diff -= phase_diff >> PHASE_DIFF_AVG;
+        phase_diff += raw_phase_diff;
         if(!phase_driftrate_period) {
           phase_driftrate = new_phase_diff - phase_diff;
           new_phase_diff = phase_diff;
@@ -257,19 +266,21 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
     case TA1IV_TACCR2: // 0x04
       // rising edge of controlled signal from VCO
       current_rising_vco = TA1CCR2;
-      period_vco = current_rising_vco - previous_rising_vco;
+      period_vco -= period_vco >> PERIOD_AVG;
+      period_vco += current_rising_vco - previous_rising_vco;
       previous_rising_vco = current_rising_vco;
       //if(!(TA1IV & TA1IV_TACCR1))
-      raw_phase_diff = current_rising_ref - current_rising_vco;
-      if(raw_phase_diff < -1000)
-        raw_phase_diff += 2000;
-      if(raw_phase_diff > 1000)
-        raw_phase_diff -= 2000;
-      phase_diff -= phase_diff >> PHASE_DIFF_AVG;
-      phase_diff += raw_phase_diff;
       // it means vco is delayed, ref was just captured
       //if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
       if(TA1CCTL1 & CCI) {
+        // phase_diff is POSITIVE
+        raw_phase_diff = current_rising_vco - current_rising_ref - target_phase_diff;
+        if(raw_phase_diff < -1000)
+          raw_phase_diff += period_vco;
+        if(raw_phase_diff > 1000)
+          raw_phase_diff -= period_vco;
+        phase_diff -= phase_diff >> PHASE_DIFF_AVG;
+        phase_diff += raw_phase_diff;
         if(!phase_driftrate_period) {
           //new_phase_diff = (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref - current_rising_vco;
           phase_driftrate = new_phase_diff - phase_diff;

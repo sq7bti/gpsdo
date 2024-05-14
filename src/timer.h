@@ -26,4 +26,7 @@ bool getTrigFlag(int8_t id);
 void setTrigFlag(uint8_t id);
 void clearTrigFlag(uint8_t id);
 int16_t getPhaseDiff();
+uint16_t getPeriodRef();
+uint16_t getPeriodVCO();
+
 #endif /* TIMER_H */
