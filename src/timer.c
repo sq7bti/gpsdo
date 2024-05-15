@@ -1,7 +1,7 @@
 #include "timer.h"
 
-#define PHASE_DIFF_AVG 3
-#define PERIOD_AVG 3
+#define PHASE_DIFF_AVG 5
+#define PERIOD_AVG 9
 
 volatile uint8_t trigger_flags = 0;
 static volatile uint32_t millis = 0, seconds = 0;
@@ -14,10 +14,10 @@ static volatile uint16_t pwm_output_duty = TA0CCR1_DEF;
 
 volatile uint16_t previous_rising_ref = 0;
 volatile uint16_t current_rising_ref = 0;
-volatile uint16_t period_ref = 0;
+volatile uint32_t period_ref = 0;
 volatile uint16_t previous_rising_vco = 0;
 volatile uint16_t current_rising_vco = 0;
-volatile uint16_t period_vco = 0;
+volatile uint32_t period_vco = 0;
 
 // positive means VCO is ahead of GPS signal
 // negative means VCO is behind GPS signal
@@ -54,8 +54,8 @@ int16_t getPhaseDiff(void) { return (int16_t)(phase_diff >> PHASE_DIFF_AVG); };
 int16_t getTargetPhaseDiff() { return target_phase_diff; }; // >> PHASE_DIFF_AVG; };
 void setTargetPhaseDiff(int16_t p) { target_phase_diff = p; }; // << PHASE_DIFF_AVG; };
 
-uint16_t getPeriodRef() { return period_ref >> PERIOD_AVG; };
-uint16_t getPeriodVCO() { return period_vco >> PERIOD_AVG; };
+uint16_t getPeriodRef() { return (uint16_t)(period_ref >> PERIOD_AVG); };
+uint16_t getPeriodVCO() { return (uint16_t)(period_vco >> PERIOD_AVG); };
 
 extern uint16_t* adc_values;
 extern uint16_t* int_temp_sensor_values;
@@ -245,12 +245,13 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       // VCO is already high
       // it means ref is delayed, vco was just captured
       // phase_diff is NEGATIVE
+      //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
       if(TA1CCTL2 & CCI) {
         raw_phase_diff = current_rising_vco - current_rising_ref - target_phase_diff;
         if(raw_phase_diff < -1000)
-          raw_phase_diff += period_ref;
+          raw_phase_diff += 2006; //period_ref;
         if(raw_phase_diff > 1000)
-          raw_phase_diff -= period_ref;
+          raw_phase_diff -= 2006; //period_ref;
         phase_diff -= phase_diff >> PHASE_DIFF_AVG;
         phase_diff += raw_phase_diff;
         if(!phase_driftrate_period) {
@@ -272,13 +273,14 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
       //if(!(TA1IV & TA1IV_TACCR1))
       // it means vco is delayed, ref was just captured
       //if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
+      //if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1)) {
       if(TA1CCTL1 & CCI) {
         // phase_diff is POSITIVE
         raw_phase_diff = current_rising_vco - current_rising_ref - target_phase_diff;
         if(raw_phase_diff < -1000)
-          raw_phase_diff += period_vco;
+          raw_phase_diff += 2006; //period_vco;
         if(raw_phase_diff > 1000)
-          raw_phase_diff -= period_vco;
+          raw_phase_diff -= 2006; //period_vco;
         phase_diff -= phase_diff >> PHASE_DIFF_AVG;
         phase_diff += raw_phase_diff;
         if(!phase_driftrate_period) {

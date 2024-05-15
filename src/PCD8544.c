@@ -202,7 +202,6 @@ void writeIntToLCD(int32_t i) {
 }
 
 void writeMHzToLCD(uint32_t i) {
-  writeCharToLCD(' ');
 #if CAPTURE_MULT == 10000
   if((i/1000000) < 10)
     writeCharToLCD(' ');
@@ -336,12 +335,12 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
         writeToLCD(LCD5110_DATA, 0xAA);
       } else {
         if(x == val) {
-          writeToLCD(LCD5110_DATA, 0xFF);
+          writeToLCD(LCD5110_DATA, 0x7E);
         } else
           writeToLCD(LCD5110_DATA, (x<val)?
-            ((x==marker)?0xF0:0x80)
+            ((x==marker)?0x70:0x80)
             :
-            ((x==marker)?0x0F:0x01));
+            ((x==marker)?0x0E:0x01));
       }
       ++x;
     }
@@ -353,15 +352,15 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
         writeToLCD(LCD5110_DATA, (prev_pd_val==41)?0xAA:((prev_pd_val==marker)?0x0F:0x01));
         ++prev_pd_val;
       }
-      writeToLCD(LCD5110_DATA, 0xFF);
+      writeToLCD(LCD5110_DATA, 0x7E);
     } else {
       uint8_t x = val;
-      writeToLCD(LCD5110_DATA, 0xFF);
+      writeToLCD(LCD5110_DATA, 0x7E);
       while(x < prev_pd_val-1) {
-        writeToLCD(LCD5110_DATA, (x==41)?0xAA:((x==marker)?0x0F:0x01));
+        writeToLCD(LCD5110_DATA, (x==41)?0xAA:((x==marker)?0x0E:0x01));
         ++x;
       }
-      writeToLCD(LCD5110_DATA, ((x==marker)?0xF0:0x80));
+      writeToLCD(LCD5110_DATA, ((x==marker)?0x70:0x80));
       prev_pd_val = val;
     }
   }

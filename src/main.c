@@ -5,50 +5,45 @@
 //  MSP430G2x53 Data Sheet              : http://www.ti.com/lit/ds/symlink/msp430g2553.pdf
 //  PCD8544 Data Sheet (Nokia 5110 MCU) : https://www.sparkfun.com/datasheets/LCD/Monochrome/Nokia5110.pdf
 //
-//  My setup:
+//  My setup: 0123456789ABCD
 //
-//         NOKIA 5110 LCD                                               MSP-EXP430G2
-//       -----------------                                           -------------------
-//      |              GND|<-- Ground ------------------------------|J6     GND         |
-//      |               BL|<-- Back-light - tie to ground via res   |                   |
-//      |              VCC|<-- Vcc +3..5V --------------------------|1      VCC         |
-//      |                 |                                         |                   |
-//      |              CLC|<-- Clock -------------------------------|7      P1.5        |
-//      |              DIN|<-- Data Input --------------------------|15     P1.7        |
-//      |               DC|<-- Data/Command (high/low) -------------|11     P2.3        |
-//      |               CE|<-- Chip Enable (active low) ------------|18     P2.7  XOUT  |
-//      |              RST|<-- Reset - RC                           |                   |
-//       -----------------                                          |                   |
-//                                                                  |                   |
-//              GPS                                                 |                   |
-//       -----------------                                          |                   |
-//      |              TX |<-- NMEA output -------------------------|3      P1.1        |
-//      |              RX |<-- NMEA input --------------------------|4      P1.2        |
-//      |           10kHz |<-- GPS reference signal--------+--------|19     P2.6 XIN    |
-//      |                 |                                \--------|9      P2.1        |
-//      |             PPS |<-- NMEA input --------------------------|Jx.x   Px.x        |
-//       -----------------                                          |                   |
-//                                                                  |                   |
-//              OCXO                                                |                   |
-//       -----------------                                          |                   |
-//      |           10MHz |<-- VCO output --------------------------|2      P1.0 (ext)  |
-//      |           10kHz |<-- VCO output divided % 1000 -----------|12     P2.4        |
-//      |            Vref |<-- VCO input ------------\--------o<|---|14     P1.6 (neg)  |
-//      |                 |                           \ ------o<|---|14     P2.0 (neg)  |
-//      |            LM35 |<-- temperature -------------------------|5      P1.3        |
-//       -----------------                                          |                   |
-//                                                                  |                   |
-//              4046                                                |                   |
-//       -----------------                                          |                   |
-//      |              PC |<-- Phase comparator output -------------|6      P1.4        |
-//       -----------------                                           -------------------
+//       NOKIA 5110 LCD  84x48 pixels                                              MSP-EXP430G2
+//       --------------------------                                           -------------------
+//      |  0123456789ABCD       GND|<-- Ground ------------------------------|J6     GND         |
+//      |  0123456789ABCD        BL|<-- Back-light - tie to ground via res   |                   |
+//      |  0123456789ABCD       VCC|<-- Vcc +3..5V --------------------------|1      VCC         |
+//      |  0123456789ABCD          |                                         |                   |
+//      |  0123456789ABCD       CLC|<-- Clock -------------------------------|7      P1.5        |
+//      |                       DIN|<-- Data Input --------------------------|15     P1.7        |
+//      |                        DC|<-- Data/Command (high/low) -------------|11     P2.3        |
+//      |                        CE|<-- Chip Enable (active low) ------------|18     P2.7  XOUT  |
+//      |                       RST|<-- Reset - RC                           |                   |
+//       --------------------------                                          |                   |
+//                                                                           |                   |
+//                       GPS                                                 |                   |
+//       --------------------------                                          |                   |
+//      |                       TX |<-- NMEA output -------------------------|3      P1.1        |
+//      |                       RX |<-- NMEA input --------------------------|4      P1.2        |
+//      |                    10kHz |<-- GPS reference signal--------+--------|19     P2.6 XIN    |
+//      |                          |                                \--------|9      P2.1        |
+//      |                      PPS |<-- NMEA input --------------------------|Jx.x   Px.x        |
+//       --------------------------                                          |                   |
+//                                                                           |                   |
+//                       OCXO                                                |                   |
+//       --------------------------                                          |                   |
+//      |                    10MHz |<-- VCO output --------------------------|2      P1.0 (ext)  |
+//      |                    10kHz |<-- VCO output divided % 1000 -----------|12     P2.4        |
+//      |                     Vref |<-- VCO input ------------\--------o<|---|14     P1.6 (neg)  |
+//      |                          |                           \ ------o<|---|14     P2.0 (neg)  |
+//      |                     LM35 |<-- temperature -------------------------|5      P1.3        |
+//       --------------------------                                          |                   |
+//                                                                           |                   |
+//                       4046                                                |                   |
+//       --------------------------                                          |                   |
+//      |                       PC |<-- Phase comparator output -------------|6      P1.4        |
+//       --------------------------                                           -------------------
 //
 //  This example is based on the RobG's example : http://forum.43oh.com/topic/1312-nokia-5110-display
-//  Changes:
-//  - Removed graphics function
-//  - Removed unused functions
-//  + LCD test runs in the loop
-//  + Added some bars animation
 //
 //***************************************************************************************
 
@@ -59,14 +54,18 @@
 #include "adc.h"
 #include "printf.h"
 
+//#define DEBUG 1
+
 // KP=3 too weak
-#define KP 5
+#define KP 2
 // KI IS !!!!NEGATIVE!!!!
-#define KI 7
+#define KI 9
 #define KD 5
 
 #define MAX_CAPTURE 650
 #define MIN_CAPTURE 50
+// 0x01230123
+#define INTEGRAL_MAX 50000
 
 /* WDT is clocked by fACLK (assumed 10kHz) */
 #define WDT_XDLY_3267       (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL)                 /* 3267.8ms  " /32768 */
@@ -139,6 +138,10 @@ int32_t i_factor;
 int16_t d_factor;
 uint16_t new_pwm;
 uint8_t kp = KP, ki = KI, kd = KD;
+uint32_t event_alarm;
+#ifdef DEBUG
+int16_t slope;
+#endif /* DEBUG */
 
 uint16_t pid_loop_count = 0;
 uint16_t correction_period = 1, correction_timer = 0, correction_margin = 32;
@@ -148,9 +151,18 @@ typedef enum {
   WARM_UP = 1,
   LOCKING = 2,
   TRACKING = 3
+#ifdef DEBUG
+  ,TESTING = 4,
+  FORCED = 5,
+  SLOPE = 6
+#endif /* DEBUG */
 } ctrl_state_t;
 
-const char ctrl_state_name[] = { 's', 'w', 'l', 't'};
+const char ctrl_state_name[] = { 's', 'w', 'l', 't'
+#ifdef DEBUG
+  , 'd', 'F', '/'
+#endif /* DEBUG */
+};
 
 //                   A5 T50.0 561C F:-5 E:-240 P:-240 I:-5441 D:-1
 //                   0000000000111111111122222222223333333333444444444455555555556666666666
@@ -163,6 +175,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
   switch(current_state) {
     case STARTUP:
       next_state = WARM_UP;
+      event_alarm = getSeconds();
     break;
     case WARM_UP:
       if((getOCXOTemperature() > ((fix_status == 'A')?(45 << 8):(48 << 8)))) {
@@ -171,7 +184,12 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         writeStringToLCD("waiting");
         setAddr(7*6, 3);
         writeStringToLCD("for fix");
+#ifdef DEBUG
+        next_state = TESTING;
+        event_alarm = getSeconds() + 5;
+#else
         next_state = LOCKING;
+#endif
         setTargetPhaseDiff(0);
       }
     break;
@@ -205,7 +223,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         error_max = INT16_MIN;
         error_min = INT16_MAX;
         p = &monitoring[0];
-        strprintf(&p, "fix sats temp pwm freq pref pvco error delta P I I D\r\n");
+        strprintf(&p, "fix sats temp pwm ctrl freq pref pvco error delta P I I D\r\n");
         *p = 0;
         putstring(monitoring);
         while(txBusy());
@@ -226,6 +244,10 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       // phase_diff <-1000 ... +1000>
       p_factor = error_current;
       i_factor += error_current;
+      if(i_factor > INTEGRAL_MAX)
+        i_factor = INTEGRAL_MAX;
+      if(i_factor < -INTEGRAL_MAX)
+        i_factor = -INTEGRAL_MAX;
       d_factor = (error_current - error_previous);
       error_previous = error_current;
       // p_factor <-500 .. + 1500>
@@ -241,6 +263,41 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       if(fix_status != 'A')
         next_state = WARM_UP;
     break;
+#ifdef DEBUG
+    case TESTING:
+      if(getSeconds() == event_alarm) {
+        next_state = FORCED;
+        next_state = SLOPE;
+        slope = +1;
+        event_alarm = getSeconds() + 15;
+        setPWM(0x0000);
+      }
+    break;
+    case FORCED:
+      if(getSeconds() == event_alarm) {
+        if(getPWM() > 0x8000) {
+          setPWM(0x0000);
+        } else {
+          setPWM(0xFFFF);
+        }
+        event_alarm = getSeconds() + 15;
+      }
+    break;
+    case SLOPE:
+      setPWM(getPWM() + slope);
+      if(slope > 0) {
+        if(getPWM() > (0xFFF8 - slope)) {
+          //next_state = TESTING;
+          slope = -slope;
+        }
+      } else {
+        if(getPWM() < (0x0008 - slope)) {
+          //next_state = TESTING;
+          slope = -slope * 2;
+        }
+      }
+    break;
+#endif
   }
   return next_state;
 }
@@ -341,13 +398,13 @@ int main(void) {
 #else
                                               800
 #endif /* OVERCLOCK */
-          ) / 24, ((getTargetPhaseDiff()==INT16_MAX)?-1:(getTargetPhaseDiff() +
+          ) / 24, ((getTargetPhaseDiff()==INT16_MAX)?-1:(
 #ifdef OVERCLOCK
-                                                1000
+                                                        1000
 #else
-                                                800
+                                                        800
 #endif /* OVERCLOCK */
-          ) / 24));
+                                                              - getTargetPhaseDiff()) / 24));
           //setAddr(0,1);
           //writeWordToLCD(phase_diff);
         break;
@@ -359,22 +416,22 @@ int main(void) {
 #else
                                               800
 #endif /* OVERCLOCK */
-            ) / 24, (getTargetPhaseDiff() +
+                                                  ) / 24, (
 #ifdef OVERCLOCK
-                                          1000
+                                                            1000
 #else
-                                          800
+                                                            800
 #endif /* OVERCLOCK */
-            ) / 24);
+                                                                  - getTargetPhaseDiff()) / 24);
           else {
             setAddr(0, 5);
             writeMHzToLCD(getOCXO());
           }
-          //setAddr(84 - (6*4), 1);
-          //setAddr(42 - (6*2), 1);
           setAddr(0, 1);
           writeWordToLCD(getPWM());
-          //writeCharToLCD(' ');
+          setAddr(84 - 6*6, 1);
+          writeQ4CToLCD(getCtrl());
+          writeCharToLCD('V');
 
           //=================
           //=================
@@ -389,6 +446,22 @@ int main(void) {
     if(getTrigFlag(TRIGGER_LOG)) {
       p = &monitoring[0];
       while(txBusy());
+      int16_t freq_off =
+#ifdef USE_10MHZ_INPUT_AS_TACLK
+  #if CAPTURE_MULT == 10000
+                          getOCXO() - 10000000UL;
+  #endif
+  #if CAPTURE_MULT == 50000
+                          (((int16_t)(getOCXO() - 50000000UL)) << 8)/5;
+  #endif
+#else
+  #if CAPTURE_MULT == 10000
+                          getOCXO();
+  #endif
+  #if CAPTURE_MULT == 50000
+                          getOCXO();
+  #endif
+#endif
       //strprintf(&p, "PWM %x ph %i P:%i I:%i D:%i\r\n", getPWM(), phase_diff, p_factor, i_factor, d_factor);
       //strprintf(&p, "%c%i T%q P%x %i E:%i P:%i I:%l D:%i\r\n",
       //        fix_status, used_sats, getOCXOTemperature(), getPWM(),
@@ -396,35 +469,21 @@ int main(void) {
       //        p_factor, i_factor, d_factor);
       strprintf(&p,
 #if CAPTURE_MULT == 10000
-                    "%c %i %q %x %l %i %i %i %i %i %l %l %i\r\n",
+                    "%c %i %q %x %l %r %i %i %i %i %i %l %l %i\r\n",
 #endif
 #if CAPTURE_MULT == 50000
-                    //"%c%i T PWM F ref vco E eD P  i Il D\r\n",
-                    "%c %i %q %x %q %i %i %i %i %i %l %l %i\r\n",
+                    //"%c%i T PWM PD F ref vco E eD P  i Il D\r\n",
+                    "%c %i %q %x %r %q %i %i %i %i %i %l %l %i\r\n",
 #endif
-                    fix_status, used_sats, getOCXOTemperature(), getPWM(),
-#ifdef USE_10MHZ_INPUT_AS_TACLK
-  #if CAPTURE_MULT == 10000
-                    getOCXO() - 10000000UL,
-  #endif
-  #if CAPTURE_MULT == 50000
-                    (((int16_t)(getOCXO() - 50000000UL)) << 8)/5,
-  #endif
-#else
-  #if CAPTURE_MULT == 10000
-                    getOCXO(),
-  #endif
-  #if CAPTURE_MULT == 50000
-                    getOCXO(),
-  #endif
-#endif
+                    fix_status, used_sats, getOCXOTemperature(), getPWM(), getCtrl(),
+                    freq_off,
                     getPeriodRef(), getPeriodVCO(),
                     error_current, error_delta,
                     p_factor, i_factor >> KI, i_factor, d_factor);
       //strprintf(&p, "F%c%i T%q POT %x = %rV %l\r\n",
-      //        fix_status, used_sats, getOCXOTemperature(), getPhaseDet(), getPhaseDet(), getOCXO());
+      //        fix_status, used_sats, getOCXOTemperature(), getCtrl(), getCtrl(), getOCXO());
       //strprintf(&p, "Int %q Oven %q ADC %r\r\n",
-      //            getIntTemperature(), getOCXOTemperature(), getPhaseDet());
+      //            getIntTemperature(), getOCXOTemperature(), getCtrl());
       *p = 0;
       putstring(monitoring);
 
@@ -438,6 +497,12 @@ int main(void) {
     // executed once a second (time!)
     if(getTrigFlag(TRIGGER_SEC)) {
       switch(gpsdo_ctrl_state) {
+        case LOCKING:
+          // "waiting"
+          setAddr(6*8, 2);
+          writeDecToLCD(getSeconds() - event_alarm);
+          writeCharToLCD('s');
+        break;
         case TRACKING:
           //=============
           y = 24 - (error_current >> y_scale); ///1); //(int8_t)((getPWM() - TA0CCR1_DEF) >> 3);
@@ -446,13 +511,13 @@ int main(void) {
           if(y < y_min)
             y_min = y;
           //y = 40 - (getPWM() >> 11);
-          uint8_t x_sc = 84 - 6*((y_scale > 2)?4:3);
-          if(x < x_sc) {
+          uint8_t x_sc = 84 - 6;//*((y_scale > 2)?4:3);
+          //if(x < x_sc) {
             setAddr(x, 1);
             writeToLCD(LCD5110_DATA, 0);
             setAddr(x, 4);
             writeToLCD(LCD5110_DATA, 0);
-          }
+          //}
           if(x == 0) {
             // 5 = +-512
             // 4 = +-256
@@ -461,18 +526,20 @@ int main(void) {
             // 1 = +-32
             // 0 = +-16
             // y_max = 24 - E -> E = 24 - y_max
-            setAddr(x_sc - 6, 1);
-            writeStringToLCD(" +");
-            writeDecToLCD((1 << (4 + y_scale)) - 1);
-            setAddr(x_sc - 6, 4);
-            writeStringToLCD(" -");
-            writeDecToLCD((1 << (4 + y_scale)));
+            //setAddr(x_sc - 6, 1);
+            //writeStringToLCD(" +");
+            //writeDecToLCD((1 << (4 + y_scale)) - 1);
+            //setAddr(x_sc - 6, 4);
+            //writeStringToLCD(" -");
+            //writeDecToLCD((1 << (4 + y_scale)));
+            setAddr(84 - 6, 5);
+            writeDecToLCD(y_scale);
           }
 
           setAddr(x, 2); writeToLCD(LCD5110_DATA, 0);
           setAddr(x, 3); writeToLCD(LCD5110_DATA, 0);
 
-          if(((x > x_sc) && (y > 16) && (y < 32)) || (x < x_sc))
+          //if(((x > x_sc) && (y > 16) && (y < 32)) || (x < x_sc))
             pixel(x,y);
           //if(((x%5) == 0) && ((y > 31) || (y < 15)))
           //  pixel(x,24);
@@ -537,11 +604,13 @@ int main(void) {
       setAddr(0, 0);
       clearBank(0);
       setInverse(getOCXOTemperature() < (50<<8));
-      writeQ88ToLCD(getOCXOTemperature());
-      writeCharToLCD(0x7F);
+      //writeQ88ToLCD(getOCXOTemperature());
+      writeDecToLCD(getOCXOTemperature() >> 8);
+      //writeCharToLCD(0x7F);
       writeCharToLCD('C');
       setInverse(FALSE);
-
+      writeDecToLCD(getIntTemperature() >> 8);
+      writeCharToLCD('C');
       writeCharToLCD(' ');
       //writeCharToLCD(' ');
 
@@ -575,7 +644,7 @@ int main(void) {
           //setAddr(0, 1);
           //clearBank(1);
 
-          //writeQ4CToLCD(getPhaseDet());
+          //writeQ4CToLCD(getCtrl());
           //writeCharToLCD('V');
 
           //writeWordToLCD(phase_comp_raw_value);
@@ -586,7 +655,7 @@ int main(void) {
           //writeIntToLCD(getTargetPhaseDiff());
           //writeCharToLCD(' ');
 
-          //writeQ4CToLCD(getPhaseDet());
+          //writeQ4CToLCD(getCtrl());
           //writeCharToLCD('V');
           //writeCharToLCD(' ');
           //writeWordToLCD(getPWM());
@@ -604,11 +673,11 @@ int main(void) {
 #if 1
           //char sbuff[15];
           //char *t = &sbuff[0];
-          //strprintf(&t, "%rV %q%cC", getPhaseDet(), getIntTemperature(), 0x7F);
+          //strprintf(&t, "%rV %q%cC", getCtrl(), getIntTemperature(), 0x7F);
           //*t = 0;
           //writeStringToLCD(sbuff);
 #else
-          //writeQ4CToLCD(getPhaseDet());
+          //writeQ4CToLCD(getCtrl());
           //writeCharToLCD('V');
           //writeCharToLCD(' ');
           //writeQ88ToLCD(getIntTemperature());
