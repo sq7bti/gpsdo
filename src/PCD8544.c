@@ -290,6 +290,26 @@ void clearBank(unsigned char bank) {
   setAddr(0, bank);
 }
 
+void graph(uint8_t x, uint8_t y, uint8_t y0) {
+  uint8_t row = y / 8, row0 = y0 / 8;
+  if((row > (LCD_MAX_Y/8)) || (row0 > (LCD_MAX_Y/8)))
+    return;
+  uint8_t line = 1 << (y%8), line0 = 1 << (y0%8);
+  if(row == row0) {
+    if((x % 5) == 0)
+      line ^= line0;
+    setAddr(x, row);
+    writeToLCD(LCD5110_DATA, line);
+  } else {
+    setAddr(x, row);
+    writeToLCD(LCD5110_DATA, line);
+    if((x % 5) == 0) {
+      setAddr(x, row0);
+      writeToLCD(LCD5110_DATA, line0);
+    }
+  }
+};
+
 void bargraph(uint8_t row, uint16_t val) {
   if(row > (LCD_MAX_Y/8))
     return;

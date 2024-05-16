@@ -260,8 +260,10 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       //setPWM(getPWM() + delta_pwm);
       setPWM(new_pwm);
 
-      if(fix_status != 'A')
+      if(fix_status != 'A') {
         next_state = WARM_UP;
+        event_alarm = getSeconds();
+      }
     break;
 #ifdef DEBUG
     case TESTING:
@@ -376,7 +378,7 @@ int setup(void) {
 }
 
 int main(void) {
-  uint8_t x = 0, y = 0, y_min, y_max, y_scale = 4;
+  uint8_t x = 0, y = 0, y_min = 255, y_max = 0, y_scale = 4;
 
   setup();
   clearBank(1);
@@ -540,7 +542,7 @@ int main(void) {
           setAddr(x, 3); writeToLCD(LCD5110_DATA, 0);
 
           //if(((x > x_sc) && (y > 16) && (y < 32)) || (x < x_sc))
-            pixel(x,y);
+            graph(x, y, 24);
           //if(((x%5) == 0) && ((y > 31) || (y < 15)))
           //  pixel(x,24);
           ++x;
@@ -606,12 +608,13 @@ int main(void) {
       setInverse(getOCXOTemperature() < (50<<8));
       //writeQ88ToLCD(getOCXOTemperature());
       writeDecToLCD(getOCXOTemperature() >> 8);
-      //writeCharToLCD(0x7F);
+      writeCharToLCD(0x7F);
       writeCharToLCD('C');
       setInverse(FALSE);
       writeDecToLCD(getIntTemperature() >> 8);
+      writeCharToLCD(0x7F);
       writeCharToLCD('C');
-      writeCharToLCD(' ');
+      //writeCharToLCD(' ');
       //writeCharToLCD(' ');
 
       setInverse(time_upd);

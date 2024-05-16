@@ -34,6 +34,7 @@ void clearLCD();
 void clearBank(unsigned char bank);
 char i2h(uint8_t i);
 void pixel(uint8_t x, uint8_t y);
+void graph(uint8_t x, uint8_t y, uint8_t y0);
 void bargraph(uint8_t l, uint16_t val);
 void phase_difference(uint8_t l, uint16_t val, uint16_t marker);
 
