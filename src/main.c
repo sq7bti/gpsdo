@@ -254,7 +254,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       new_pwm = TA0CCR1_DEF
                 + (p_factor << kp)
                 + (i_factor >> ki);
-                //- (d_factor << kd);
+                //+ (d_factor << kd);
 
       //int16_t delta_pwm = new_pwm - getPWM();
       //setPWM(getPWM() + delta_pwm);
@@ -607,11 +607,11 @@ int main(void) {
       clearBank(0);
       setInverse(getOCXOTemperature() < (50<<8));
       //writeQ88ToLCD(getOCXOTemperature());
-      writeDecToLCD(getOCXOTemperature() >> 8);
+      writeDecToLCD((getOCXOTemperature() >> 8) + ((getOCXOTemperature() & 0x0080) >> 7));
       writeCharToLCD(0x7F);
       writeCharToLCD('C');
       setInverse(FALSE);
-      writeDecToLCD(getIntTemperature() >> 8);
+      writeDecToLCD((getIntTemperature() >> 8) + ((getIntTemperature() & 0x0080) >> 7));
       writeCharToLCD(0x7F);
       writeCharToLCD('C');
       //writeCharToLCD(' ');
@@ -629,7 +629,6 @@ int main(void) {
       writeCharToLCD('P');
       setInverse(FALSE);
 
-      writeCharToLCD(' ');
       if(gpsdo_ctrl_state == TRACKING)
         setInverse(abs(error_current) < 32);
       writeCharToLCD(ctrl_state_name[gpsdo_ctrl_state]);
