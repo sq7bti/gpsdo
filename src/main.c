@@ -57,15 +57,19 @@
 //#define DEBUG 1
 
 // KP=3 too weak
-#define KP 2
+#define KP 0
 // KI IS !!!!NEGATIVE!!!!
-#define KI 9
-#define KD 5
+#define KI 2
+#define KD 0
 
 #define MAX_CAPTURE 650
 #define MIN_CAPTURE 50
-// 0x01230123
-#define INTEGRAL_MAX 50000
+// 0x01230123 0x00040000
+// there's no need to wind-up more than 1/2 of PWM either way
+//#define INTEGRAL_MAX 262144
+//#define INTEGRAL_MAX 0x00010000
+//#define INTEGRAL_MAX 0x00004000
+#define INTEGRAL_MAX 0x00008000
 
 /* WDT is clocked by fACLK (assumed 10kHz) */
 #define WDT_XDLY_3267       (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL)                 /* 3267.8ms  " /32768 */
@@ -214,6 +218,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         ki = KI;
         kd = KD;
         // target phaes diff should be <-999 ... +999
+        while(txBusy());
         char *p = &monitoring[0];
         strprintf(&p, "PID: %i/%i/%i; start tracking %c%i ... \r\n", kp, ki, kd, getTargetPhaseDiff()>0?'+':' ', getTargetPhaseDiff());
         *p = 0;
@@ -233,7 +238,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       // track phase
       // POSITIVE error - we need to chase Ref
       // NEGATIVE error - we need to slow down and let REF catch up
-      error_current = getPhaseDiff(); // - getTargetPhaseDiff();
+      error_current = getPhaseDiff() - getTargetPhaseDiff();
 
       if(error_current > error_max)
         error_max = error_current;
@@ -256,13 +261,13 @@ ctrl_state_t controller(ctrl_state_t current_state) {
                 + (i_factor >> ki);
                 //+ (d_factor << kd);
 
-      //int16_t delta_pwm = new_pwm - getPWM();
-      //setPWM(getPWM() + delta_pwm);
       setPWM(new_pwm);
 
       if(fix_status != 'A') {
         next_state = WARM_UP;
         event_alarm = getSeconds();
+        ref_tracked = FALSE;
+        vco_tracked = FALSE;
       }
     break;
 #ifdef DEBUG
@@ -471,15 +476,16 @@ int main(void) {
       //        p_factor, i_factor, d_factor);
       strprintf(&p,
 #if CAPTURE_MULT == 10000
-                    "%c %i %q %x %l %r %i %i %i %i %i %l %l %i\r\n",
+                    "%c %i %q %x %l %r %i %i %i %i %i %i %l %l %i\r\n",
 #endif
 #if CAPTURE_MULT == 50000
-                    //"%c%i T PWM PD F ref vco E eD P  i Il D\r\n",
-                    "%c %i %q %x %r %q %i %i %i %i %i %l %l %i\r\n",
+                    //"%c%i T PWM PD F ref vco pe E eD P  i Il D\r\n",
+                    "%c %i %q %x %r %q %i %i %i %i %i %i %l %l %i\r\n",
 #endif
                     fix_status, used_sats, getOCXOTemperature(), getPWM(), getCtrl(),
                     freq_off,
                     getPeriodRef(), getPeriodVCO(),
+                    getPhaseDiff(),
                     error_current, error_delta,
                     p_factor, i_factor >> KI, i_factor, d_factor);
       //strprintf(&p, "F%c%i T%q POT %x = %rV %l\r\n",
@@ -513,13 +519,10 @@ int main(void) {
           if(y < y_min)
             y_min = y;
           //y = 40 - (getPWM() >> 11);
-          uint8_t x_sc = 84 - 6;//*((y_scale > 2)?4:3);
-          //if(x < x_sc) {
-            setAddr(x, 1);
-            writeToLCD(LCD5110_DATA, 0);
-            setAddr(x, 4);
-            writeToLCD(LCD5110_DATA, 0);
-          //}
+          setAddr(x, 1);
+          writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 4);
+          writeToLCD(LCD5110_DATA, 0);
           if(x == 0) {
             // 5 = +-512
             // 4 = +-256
@@ -528,12 +531,6 @@ int main(void) {
             // 1 = +-32
             // 0 = +-16
             // y_max = 24 - E -> E = 24 - y_max
-            //setAddr(x_sc - 6, 1);
-            //writeStringToLCD(" +");
-            //writeDecToLCD((1 << (4 + y_scale)) - 1);
-            //setAddr(x_sc - 6, 4);
-            //writeStringToLCD(" -");
-            //writeDecToLCD((1 << (4 + y_scale)));
             setAddr(84 - 6, 5);
             writeDecToLCD(y_scale);
           }
@@ -541,9 +538,7 @@ int main(void) {
           setAddr(x, 2); writeToLCD(LCD5110_DATA, 0);
           setAddr(x, 3); writeToLCD(LCD5110_DATA, 0);
 
-          //if(((x > x_sc) && (y > 16) && (y < 32)) || (x < x_sc))
-            graph(x, y, 24);
-          //if(((x%5) == 0) && ((y > 31) || (y < 15)))
+          graph(x, y, 24);
           //  pixel(x,24);
           ++x;
           if(x > 84) {
@@ -561,12 +556,10 @@ int main(void) {
             y_max = 8;
             x = 0;
           }
-          if(x < x_sc) {
-            setAddr(x, 1); writeToLCD(LCD5110_DATA, 0xFF);
-            setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
-          }
+          setAddr(x, 1); writeToLCD(LCD5110_DATA, 0xFF);
           setAddr(x, 2); writeToLCD(LCD5110_DATA, 0xFF);
           setAddr(x, 3); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
           //=========
         }
       clearTrigFlag(TRIGGER_SEC);

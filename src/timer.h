@@ -19,7 +19,6 @@ uint8_t getclicks();
 uint32_t getMillis();
 uint32_t getSeconds();
 uint32_t getOCXO();
-uint32_t getCAP();
 void setPWM(uint16_t);
 uint16_t getPWM();
 bool getTrigFlag(int8_t id);
