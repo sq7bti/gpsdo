@@ -57,19 +57,23 @@
 //#define DEBUG 1
 
 // KP=3 too weak
-#define KP 0
+#define KP 4
 // KI IS !!!!NEGATIVE!!!!
-#define KI 2
+#define KI 8
 #define KD 0
 
 #define MAX_CAPTURE 650
-#define MIN_CAPTURE 50
+#define MIN_CAPTURE 150
 // 0x01230123 0x00040000
 // there's no need to wind-up more than 1/2 of PWM either way
 //#define INTEGRAL_MAX 262144
+//#define INTEGRAL_MAX 65536
+#define INTEGRAL_MAX 16384
 //#define INTEGRAL_MAX 0x00010000
 //#define INTEGRAL_MAX 0x00004000
-#define INTEGRAL_MAX 0x00008000
+//#define INTEGRAL_MAX 0x00008000
+
+/* */
 
 /* WDT is clocked by fACLK (assumed 10kHz) */
 #define WDT_XDLY_3267       (WDTPW+WDTTMSEL+WDTCNTCL+WDTSSEL)                 /* 3267.8ms  " /32768 */
@@ -144,7 +148,7 @@ uint16_t new_pwm;
 uint8_t kp = KP, ki = KI, kd = KD;
 uint32_t event_alarm;
 #ifdef DEBUG
-int16_t slope;
+int16_t slope = 1;
 #endif /* DEBUG */
 
 uint16_t pid_loop_count = 0;
@@ -190,7 +194,8 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         writeStringToLCD("for fix");
 #ifdef DEBUG
         next_state = TESTING;
-        event_alarm = getSeconds() + 5;
+        event_alarm = getSeconds() + 15;
+        setPWM(0x0000);
 #else
         next_state = LOCKING;
 #endif
@@ -238,7 +243,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       // track phase
       // POSITIVE error - we need to chase Ref
       // NEGATIVE error - we need to slow down and let REF catch up
-      error_current = getPhaseDiff() - getTargetPhaseDiff();
+      error_current = getPhaseDiff()- getTargetPhaseDiff();
 
       if(error_current > error_max)
         error_max = error_current;
@@ -250,9 +255,9 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       p_factor = error_current;
       i_factor += error_current;
       if(i_factor > INTEGRAL_MAX)
-        i_factor = INTEGRAL_MAX;
+        i_factor = (int32_t)INTEGRAL_MAX;
       if(i_factor < -INTEGRAL_MAX)
-        i_factor = -INTEGRAL_MAX;
+        i_factor = (int32_t)(-(INTEGRAL_MAX));
       d_factor = (error_current - error_previous);
       error_previous = error_current;
       // p_factor <-500 .. + 1500>
@@ -273,11 +278,9 @@ ctrl_state_t controller(ctrl_state_t current_state) {
 #ifdef DEBUG
     case TESTING:
       if(getSeconds() == event_alarm) {
-        next_state = FORCED;
+        //next_state = FORCED;
         next_state = SLOPE;
-        slope = +1;
-        event_alarm = getSeconds() + 15;
-        setPWM(0x0000);
+        event_alarm = getSeconds() + 30;
       }
     break;
     case FORCED:
@@ -287,20 +290,21 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         } else {
           setPWM(0xFFFF);
         }
-        event_alarm = getSeconds() + 15;
+        event_alarm = getSeconds() + 60;
       }
     break;
     case SLOPE:
       setPWM(getPWM() + slope);
       if(slope > 0) {
-        if(getPWM() > (0xFFF8 - slope)) {
+        if(getPWM() > (0xFF00 - slope)) {
           //next_state = TESTING;
           slope = -slope;
         }
       } else {
-        if(getPWM() < (0x0008 - slope)) {
-          //next_state = TESTING;
-          slope = -slope * 2;
+        if(getPWM() < (0x00FF - slope)) {
+          slope = (abs(slope) + 1);
+          next_state = TESTING;
+          event_alarm = getSeconds() + 10;
         }
       }
     break;
@@ -411,10 +415,15 @@ int main(void) {
 #else
                                                         800
 #endif /* OVERCLOCK */
-                                                              - getTargetPhaseDiff()) / 24));
+                                                              + getTargetPhaseDiff()) / 24));
           //setAddr(0,1);
           //writeWordToLCD(phase_diff);
         break;
+#ifdef DEBUG
+        case TESTING:
+        case FORCED:
+        case SLOPE:
+#endif /* DEBUG */
         case TRACKING:
           if(abs(error_current) > 32)
             phase_difference(5, (getPhaseDiff() +
@@ -429,10 +438,11 @@ int main(void) {
 #else
                                                             800
 #endif /* OVERCLOCK */
-                                                                  - getTargetPhaseDiff()) / 24);
+                                                                  + getTargetPhaseDiff()) / 24);
           else {
             setAddr(0, 5);
             writeMHzToLCD(getOCXO());
+            writeDecToLCD(y_scale);
           }
           setAddr(0, 1);
           writeWordToLCD(getPWM());
@@ -453,21 +463,23 @@ int main(void) {
     if(getTrigFlag(TRIGGER_LOG)) {
       p = &monitoring[0];
       while(txBusy());
-      int16_t freq_off =
+      uint32_t freq_meas = getOCXO() / 5;
 #ifdef USE_10MHZ_INPUT_AS_TACLK
-  #if CAPTURE_MULT == 10000
-                          getOCXO() - 10000000UL;
+  #if CAPTURE_MULT <= 10000
+      int16_t freq_off_hz = getOCXO() - 10000000UL;
+      uint16_t freq_off_tenth = 0;
   #endif
   #if CAPTURE_MULT == 50000
-                          (((int16_t)(getOCXO() - 50000000UL)) << 8)/5;
+      int16_t freq_off_hz = ((int16_t)(getOCXO() - 50000000UL))/5;
+      uint16_t freq_off_tenth = abs(((int16_t)(getOCXO() - 50000000UL)))%5;
+      //freq_off_tenth &= 0x00FF;
+      freq_off_tenth *= 2;
+      //freq_off_tenth >>= 8;
+      //freq_off_tenth /= 5;
   #endif
 #else
-  #if CAPTURE_MULT == 10000
-                          getOCXO();
-  #endif
-  #if CAPTURE_MULT == 50000
-                          getOCXO();
-  #endif
+      int16_t freq_off_hz = getOCXO();
+      uint16_t freq_off_tenth = 0;
 #endif
       //strprintf(&p, "PWM %x ph %i P:%i I:%i D:%i\r\n", getPWM(), phase_diff, p_factor, i_factor, d_factor);
       //strprintf(&p, "%c%i T%q P%x %i E:%i P:%i I:%l D:%i\r\n",
@@ -475,17 +487,20 @@ int main(void) {
       //        getOCXO() - 10000000, error_current,
       //        p_factor, i_factor, d_factor);
       strprintf(&p,
-#if CAPTURE_MULT == 10000
-                    "%c %i %q %x %l %r %i %i %i %i %i %i %l %l %i\r\n",
+#if CAPTURE_MULT <= 10000
+                    "%c %i %q %x %r %i %i %i %i %i %i %i %l %l %i\r\n",
 #endif
 #if CAPTURE_MULT == 50000
-                    //"%c%i T PWM PD F ref vco pe E eD P  i Il D\r\n",
-                    "%c %i %q %x %r %q %i %i %i %i %i %i %l %l %i\r\n",
+                    //"%c%i T PWM PD F.f  ref vco pe E eD P  i Il D\r\n",
+                    //"%c %i %q %x %r %i.%i %i %i %i %i %i %i %l %l %i\r\n",
+                    //"%c%i T PWM PD F.f  pe E eD P  i Il D\r\n",
+                    "%c %i %q %x %r %i.%i %i %i %i %l %l %i\r\n",
 #endif
                     fix_status, used_sats, getOCXOTemperature(), getPWM(), getCtrl(),
-                    freq_off,
-                    getPeriodRef(), getPeriodVCO(),
-                    getPhaseDiff(),
+                    //((int16_t)(getOCXO() - 50000000UL)),
+                    freq_off_hz, freq_off_tenth,
+                    //getPeriodRef(), getPeriodVCO(),
+                    //getPhaseDiff(),
                     error_current, error_delta,
                     p_factor, i_factor >> KI, i_factor, d_factor);
       //strprintf(&p, "F%c%i T%q POT %x = %rV %l\r\n",
