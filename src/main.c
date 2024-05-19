@@ -59,19 +59,17 @@
 // KP=3 too weak
 #define KP 4
 // KI IS !!!!NEGATIVE!!!!
-#define KI 8
-#define KD 0
+#define KI 9
+#define KD 2
 
 #define MAX_CAPTURE 650
 #define MIN_CAPTURE 150
 // 0x01230123 0x00040000
 // there's no need to wind-up more than 1/2 of PWM either way
 //#define INTEGRAL_MAX 262144
-//#define INTEGRAL_MAX 65536
-#define INTEGRAL_MAX 16384
-//#define INTEGRAL_MAX 0x00010000
-//#define INTEGRAL_MAX 0x00004000
-//#define INTEGRAL_MAX 0x00008000
+#define INTEGRAL_MAX 65536
+//#define INTEGRAL_MAX 16384
+//#define INTEGRAL_MAX 4096
 
 /* */
 
@@ -171,8 +169,7 @@ const char ctrl_state_name[] = { 's', 'w', 'l', 't'
   , 'd', 'F', '/'
 #endif /* DEBUG */
 };
-
-//                   A5 T50.0 561C F:-5 E:-240 P:-240 I:-5441 D:-1
+//                   A 5 52.6 6FDD 3.388 -83.4 -232 13 123 -232 -128 -65536 0
 //                   0000000000111111111122222222223333333333444444444455555555556666666666
 //                   0123456789012345678901234567890123456789012345678901234567890123456789
 char monitoring[] = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\r\n";
@@ -186,7 +183,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       event_alarm = getSeconds();
     break;
     case WARM_UP:
-      if((getOCXOTemperature() > ((fix_status == 'A')?(45 << 8):(48 << 8)))) {
+      if((getOCXOTemperature() > ((fix_status == 'A')?(50 << 8):(52 << 8)))) {
         clearBank(1); clearBank(2); clearBank(3); clearBank(4);
         setAddr(0, 2);  //0123456789ABCD
         writeStringToLCD("waiting");
@@ -233,7 +230,8 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         error_max = INT16_MIN;
         error_min = INT16_MAX;
         p = &monitoring[0];
-        strprintf(&p, "fix sats temp pwm ctrl freq pref pvco error delta P I I D\r\n");
+        //             "%c %i   T    PWM PD   F.f  E     eD    DOP P i Il D\r\n",
+        strprintf(&p, "fix sats temp pwm ctrl freq error delta dop P I I D\r\n");
         *p = 0;
         putstring(monitoring);
         while(txBusy());
@@ -264,7 +262,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       new_pwm = TA0CCR1_DEF
                 + (p_factor << kp)
                 + (i_factor >> ki);
-                //+ (d_factor << kd);
+                + (d_factor << kd);
 
       setPWM(new_pwm);
 
@@ -337,6 +335,8 @@ int setup(void) {
 //    writeStringToLCD("Xtal fault");
 
   // it was power on so perform full reset of GPS module
+  setAddr(0, 5);
+  writeStringToLCD("(c)2024 sq7bti");
   setAddr(10 + (6*5), 2);
   writeStringToLCD("start");
   setAddr(10, 2);
@@ -444,11 +444,13 @@ int main(void) {
             writeMHzToLCD(getOCXO());
             writeDecToLCD(y_scale);
           }
+          //setAddr(0, (error_current > -5)?4:1);
           setAddr(0, 1);
           writeWordToLCD(getPWM());
-          setAddr(84 - 6*6, 1);
+          //setAddr(84 - 6*6, (error_current > -5)?4:1);
+          setAddr(84 - 6*5, 1);
           writeQ4CToLCD(getCtrl());
-          writeCharToLCD('V');
+          //writeCharToLCD('V');
 
           //=================
           //=================
@@ -493,8 +495,8 @@ int main(void) {
 #if CAPTURE_MULT == 50000
                     //"%c%i T PWM PD F.f  ref vco pe E eD P  i Il D\r\n",
                     //"%c %i %q %x %r %i.%i %i %i %i %i %i %i %l %l %i\r\n",
-                    //"%c%i T PWM PD F.f  pe E eD P  i Il D\r\n",
-                    "%c %i %q %x %r %i.%i %i %i %i %l %l %i\r\n",
+                    //"%c%i T PWM PD F.f   E eD DOP P  i Il D\r\n",
+                    "%c %i %q %x %r %i.%i %i %i %q %i %i %l %i\r\n",
 #endif
                     fix_status, used_sats, getOCXOTemperature(), getPWM(), getCtrl(),
                     //((int16_t)(getOCXO() - 50000000UL)),
@@ -502,7 +504,8 @@ int main(void) {
                     //getPeriodRef(), getPeriodVCO(),
                     //getPhaseDiff(),
                     error_current, error_delta,
-                    p_factor, i_factor >> KI, i_factor, d_factor);
+                    ((uint16_t)hdop << 8) / 100,
+                    p_factor, (int16_t)(i_factor >> KI), i_factor, d_factor);
       //strprintf(&p, "F%c%i T%q POT %x = %rV %l\r\n",
       //        fix_status, used_sats, getOCXOTemperature(), getCtrl(), getCtrl(), getOCXO());
       //strprintf(&p, "Int %q Oven %q ADC %r\r\n",
@@ -577,6 +580,15 @@ int main(void) {
           setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
           //=========
         }
+        if(error_delta > 5) {
+          setAddr(84 - 4*6, 4);
+          writeStringToLCD(hdop_str);
+        //} else {
+        //  if(error_delta < 3) {
+        //    setAddr(84 - 4*6, 4);
+        //    writeStringToLCD("    ");
+        //  }
+        }
       clearTrigFlag(TRIGGER_SEC);
     }
 
@@ -637,8 +649,12 @@ int main(void) {
       writeCharToLCD('P');
       setInverse(FALSE);
 
+      // error abs()<8 means the phase error is less than 4 cycles of 10MHz
+      // in normal circumstances it would mean the frequency offset is
+      // less than 4Hz from the reference, but in conjunction with delta (variation)
+      // less than 2 the VCO signal should be of acceptable stability
       if(gpsdo_ctrl_state == TRACKING)
-        setInverse(abs(error_current) < 32);
+        setInverse((abs(error_current) < 8) && (error_delta < 2));
       writeCharToLCD(ctrl_state_name[gpsdo_ctrl_state]);
       setInverse(FALSE);
 
