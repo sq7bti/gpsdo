@@ -127,7 +127,7 @@ static const char font[][5] = { // basic font
 ,{0x00, 0x06, 0x09, 0x09, 0x06} // 7f Deg Symbol
 };
 
-static uint8_t prev_bar_val = 255, prev_pd_val = 255;
+static uint8_t prev_bar_val = 255, prev_pd_val = 255, prev_pd_valf = 255;
 static uint8_t inverse = 0x00;
 
 // LCD functions implementation
@@ -275,7 +275,7 @@ void pixel(uint8_t x, uint8_t y) {
   uint8_t row = y / 8;
   if(row > 4)
     return;
-  if(row < 2)
+  if(row < 1)
     return;
   uint8_t line = 1 << (y%8);
   setAddr(x, row);
@@ -347,45 +347,82 @@ void bargraph(uint8_t row, uint16_t val) {
   }
 };
 
+#define BOT  0x80
+#define BOTM 0x70
+#define TOP  0x01
+#define TOPM 0x0E
+#define MID  0xAA
+
+//                    where?       rising edge   extra marker
 void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
   if((val == prev_pd_val) || (row > (LCD_MAX_Y/8)))
     return;
-  if(prev_pd_val == 255) {
+  uint16_t valf = (val + (LCD_MAX_X/2)) % LCD_MAX_X;
+  if(1) {//prev_pd_val == 255) {
     uint8_t x = 0;
     setAddr(x, row);
     while(x < LCD_MAX_X) {
-      setAddr(x, row);
+      //setAddr(x, row);
       if(x == 41) {
-        writeToLCD(LCD5110_DATA, 0xAA);
+        writeToLCD(LCD5110_DATA, MID);
       } else {
-        if(x == val) {
-          writeToLCD(LCD5110_DATA, 0x7E);
+        if((x == val) || (x == valf)) {
+          writeToLCD(LCD5110_DATA, (x==marker)?0x66:0x7E);
         } else
-          writeToLCD(LCD5110_DATA, (x<val)?
-            ((x==marker)?0x70:0x80)
-            :
-            ((x==marker)?0x0E:0x01));
+          if(val < valf) {
+            //     _____
+            // ___|     |____
+            writeToLCD(LCD5110_DATA, ((x>val)&&(x<valf))?
+              ((x==marker)?TOPM:TOP)
+              :
+              ((x==marker)?BOTM:BOT));
+          } else {
+            // ___        ___
+            //    |______|
+            writeToLCD(LCD5110_DATA, ((x<valf)||(x>val))?
+              ((x==marker)?TOPM:TOP)
+              :
+              ((x==marker)?BOTM:BOT));
+          }
       }
       ++x;
     }
   } else {
+    // move to the right
     if(prev_pd_val < val) {
       setAddr(prev_pd_val, row);
-      writeToLCD(LCD5110_DATA, 0x01);
+      writeToLCD(LCD5110_DATA, BOT);
       while(prev_pd_val < val-1) {
-        writeToLCD(LCD5110_DATA, (prev_pd_val==41)?0xAA:((prev_pd_val==marker)?0x0F:0x01));
+        writeToLCD(LCD5110_DATA, (prev_pd_val==41)?MID:((prev_pd_val==marker)?0x0F:BOT));
         ++prev_pd_val;
       }
-      writeToLCD(LCD5110_DATA, 0x7E);
+      writeToLCD(LCD5110_DATA, (prev_pd_val==marker)?0x66:0x7E);
+      // falling edge
+      setAddr(prev_pd_valf, row);
+      writeToLCD(LCD5110_DATA, TOP);
+      while(prev_pd_valf < valf-1) {
+        writeToLCD(LCD5110_DATA, (prev_pd_valf==41)?MID:((prev_pd_valf==marker)?0x0F:TOP));
+        ++prev_pd_valf;
+      }
+      writeToLCD(LCD5110_DATA, BOT);
     } else {
+      // move to the left
       uint8_t x = val;
-      writeToLCD(LCD5110_DATA, 0x7E);
+      writeToLCD(LCD5110_DATA, (x==marker)?0x66:0x7E);
       while(x < prev_pd_val-1) {
-        writeToLCD(LCD5110_DATA, (x==41)?0xAA:((x==marker)?0x0E:0x01));
+        writeToLCD(LCD5110_DATA, (x==41)?MID:((x==marker)?BOTM:BOT));
         ++x;
       }
-      writeToLCD(LCD5110_DATA, ((x==marker)?0x70:0x80));
-      prev_pd_val = val;
+      writeToLCD(LCD5110_DATA, ((x==marker)?TOPM:TOP));
+      // falling edge
+      x = valf;
+      writeToLCD(LCD5110_DATA, (x==marker)?0x66:0x7E);
+      while(x < prev_pd_valf-1) {
+        writeToLCD(LCD5110_DATA, (x==41)?MID:((x==marker)?BOTM:TOP));
+        ++x;
+      }
+      writeToLCD(LCD5110_DATA, ((x==marker)?TOPM:BOT));
     }
+    prev_pd_valf = valf;
   }
 };

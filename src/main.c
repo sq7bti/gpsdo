@@ -144,7 +144,7 @@ int32_t i_factor;
 int16_t d_factor;
 uint16_t new_pwm;
 uint8_t kp = KP, ki = KI, kd = KD;
-uint32_t event_alarm;
+uint32_t event_alarm, fix_alarm;
 #ifdef DEBUG
 int16_t slope = 1;
 #endif /* DEBUG */
@@ -195,12 +195,14 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         setPWM(0x0000);
 #else
         next_state = LOCKING;
+        fix_alarm = getSeconds() + 2;
 #endif
         setTargetPhaseDiff(0);
       }
     break;
     case LOCKING:
-      if((fix_status == 'A') && ref_tracked && vco_tracked) {
+      if((fix_status == 'A') && ref_tracked && vco_tracked) // && (getSeconds() > fix_alarm))
+      {
         if((getPhaseDiff() > -MIN_CAPTURE) && (getPhaseDiff() < MIN_CAPTURE)) {
           if(getPhaseDiff() > 0)
             setTargetPhaseDiff(MIN_CAPTURE);
@@ -235,6 +237,8 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         *p = 0;
         putstring(monitoring);
         while(txBusy());
+      } else {
+        fix_alarm = getSeconds() + 2;
       }
     break;
     case TRACKING:
@@ -425,7 +429,7 @@ int main(void) {
         case SLOPE:
 #endif /* DEBUG */
         case TRACKING:
-          if(abs(error_current) > 32)
+          if(abs(error_current) > 64)
             phase_difference(5, (getPhaseDiff() +
 #ifdef OVERCLOCK
                                               1000
@@ -495,7 +499,7 @@ int main(void) {
 #if CAPTURE_MULT == 50000
                     //"%c%i T PWM PD F.f  ref vco pe E eD P  i Il D\r\n",
                     //"%c %i %q %x %r %i.%i %i %i %i %i %i %i %l %l %i\r\n",
-                    //"%c%i T PWM PD F.f   E eD DOP P  i Il D\r\n",
+                    //"%c%i T PWM PD F.f  E eD DOP P  i Il D\r\n",
                     "%c %i %q %x %r %i.%i %i %i %q %i %i %l %i\r\n",
 #endif
                     fix_status, used_sats, getOCXOTemperature(), getPWM(), getCtrl(),
@@ -605,7 +609,9 @@ int main(void) {
           setAddr(x, 2); writeToLCD(LCD5110_DATA, 0);
           setAddr(x, 3); writeToLCD(LCD5110_DATA, 0);
           setAddr(x, 4); writeToLCD(LCD5110_DATA, 0);
-          pixel(x,y);
+          //pixel(x,y);
+          // 50deg as dotted line
+          graph(x, y, 10);
           ++x;
           if(x > 84)
             x = 0;
