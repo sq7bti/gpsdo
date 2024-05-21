@@ -352,13 +352,14 @@ void bargraph(uint8_t row, uint16_t val) {
 #define TOP  0x01
 #define TOPM 0x0E
 #define MID  0xAA
+#define FLANK 0x7E
 
 //                    where?       rising edge   extra marker
 void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
   if((val == prev_pd_val) || (row > (LCD_MAX_Y/8)))
     return;
   uint16_t valf = (val + (LCD_MAX_X/2)) % LCD_MAX_X;
-  if(1) {//prev_pd_val == 255) {
+  if(prev_pd_val == 255) {
     uint8_t x = 0;
     setAddr(x, row);
     while(x < LCD_MAX_X) {
@@ -367,7 +368,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
         writeToLCD(LCD5110_DATA, MID);
       } else {
         if((x == val) || (x == valf)) {
-          writeToLCD(LCD5110_DATA, (x==marker)?0x66:0x7E);
+          writeToLCD(LCD5110_DATA, (x==marker)?0x66:FLANK);
         } else
           if(val < valf) {
             //     _____
@@ -396,7 +397,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
         writeToLCD(LCD5110_DATA, (prev_pd_val==41)?MID:((prev_pd_val==marker)?0x0F:BOT));
         ++prev_pd_val;
       }
-      writeToLCD(LCD5110_DATA, (prev_pd_val==marker)?0x66:0x7E);
+      writeToLCD(LCD5110_DATA, (prev_pd_val==marker)?0x66:FLANK);
       // falling edge
       setAddr(prev_pd_valf, row);
       writeToLCD(LCD5110_DATA, TOP);
@@ -408,7 +409,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
     } else {
       // move to the left
       uint8_t x = val;
-      writeToLCD(LCD5110_DATA, (x==marker)?0x66:0x7E);
+      writeToLCD(LCD5110_DATA, (x==marker)?0x66:FLANK);
       while(x < prev_pd_val-1) {
         writeToLCD(LCD5110_DATA, (x==41)?MID:((x==marker)?BOTM:BOT));
         ++x;
@@ -416,7 +417,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
       writeToLCD(LCD5110_DATA, ((x==marker)?TOPM:TOP));
       // falling edge
       x = valf;
-      writeToLCD(LCD5110_DATA, (x==marker)?0x66:0x7E);
+      writeToLCD(LCD5110_DATA, (x==marker)?0x66:FLANK);
       while(x < prev_pd_valf-1) {
         writeToLCD(LCD5110_DATA, (x==41)?MID:((x==marker)?BOTM:TOP));
         ++x;

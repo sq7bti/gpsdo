@@ -57,17 +57,17 @@
 //#define DEBUG 1
 
 // KP=3 too weak
-#define KP 4
+#define KP 3
 // KI IS !!!!NEGATIVE!!!!
-#define KI 9
+#define KI 10
 #define KD 2
 
-#define MAX_CAPTURE 800
-#define MIN_CAPTURE 150
+#define MAX_CAPTURE 950
+#define MIN_CAPTURE 50
 // 0x01230123 0x00040000
 // there's no need to wind-up more than 1/2 of PWM either way
-//#define INTEGRAL_MAX 262144
-#define INTEGRAL_MAX 65536
+#define INTEGRAL_MAX 262144
+//#define INTEGRAL_MAX 65536
 //#define INTEGRAL_MAX 16384
 //#define INTEGRAL_MAX 4096
 
@@ -136,6 +136,7 @@ void initSPI(void) {
 
 extern bool vco_tracked;
 extern bool ref_tracked;
+//extern uint8_t pllstate, pllcount;
 
 int16_t error_current, error_previous, error_max, error_min, error_delta;
 //extern volatile uint16_t target_phase_diff;
@@ -420,19 +421,11 @@ int main(void) {
       switch(gpsdo_ctrl_state) {
         case WARM_UP:
         case LOCKING:
-          phase_difference(5, (getPhaseDiff() +
 #ifdef OVERCLOCK
-                                              1000
+          phase_difference(5, (getPhaseDiff() + 1003) / 32, ((getTargetPhaseDiff()==INT16_MAX)?-1:(getTargetPhaseDiff() + 1003) / 32));
 #else
-                                              800
+          phase_difference(5, (getPhaseDiff() + 800) / 24, ((getTargetPhaseDiff()==INT16_MAX)?-1:(getTargetPhaseDiff() + 800) / 24));
 #endif /* OVERCLOCK */
-          ) / 24, ((getTargetPhaseDiff()==INT16_MAX)?-1:(
-#ifdef OVERCLOCK
-                                                        1000
-#else
-                                                        800
-#endif /* OVERCLOCK */
-                                                              + getTargetPhaseDiff()) / 24));
           //setAddr(0,1);
           //writeWordToLCD(phase_diff);
         break;
@@ -443,20 +436,13 @@ int main(void) {
 #endif /* DEBUG */
         case TRACKING:
           if(abs(error_current) > 16)
-            phase_difference(5, (getPhaseDiff() +
+          {
 #ifdef OVERCLOCK
-                                              1000
+            phase_difference(5, (getPhaseDiff() + 1003) / 32, (getTargetPhaseDiff() + 1003) / 32);
 #else
-                                              800
+            phase_difference(5, (getPhaseDiff() + 800) / 24, (getTargetPhaseDiff() + 800) / 24);
 #endif /* OVERCLOCK */
-                                                  ) / 24, (
-#ifdef OVERCLOCK
-                                                            1000
-#else
-                                                            800
-#endif /* OVERCLOCK */
-                                                                  + getTargetPhaseDiff()) / 24);
-          else {
+          } else {
             setAddr(0, 5);
             writeMHzToLCD(getOCXO());
             writeDecToLCD(y_scale);
@@ -514,11 +500,11 @@ int main(void) {
                     //"%c %i %q %x %r %i.%i %i %i %i %i %i %i %l %l %i\r\n",
                     //"%c%i T PWM PD F.f diff E eD DOP P  i Il D\r\n",
                     "%c %i %q %x %r %i.%i %i %i %i %q %i %i %l %i\r\n",
+                    //"%n %x : (%c) -> (%c) %i\r\n",
 #endif
+                    //pllcount, pllstate, i2h(pllstate >> 4), i2h(pllstate & 0x0F), getPhaseDiff());
                     fix_status, used_sats, getOCXOTemperature(), getPWM(), getCtrl(),
-                    //((int16_t)(getOCXO() - 50000000UL)),
                     freq_off_hz, freq_off_tenth,
-                    //getPeriodRef(), getPeriodVCO(),
                     getPhaseDiff(),
                     error_current, error_delta,
                     ((uint16_t)hdop << 8) / 100,

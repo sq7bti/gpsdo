@@ -1,8 +1,11 @@
 #include "timer.h"
 
-#define PHASE_DIFF_AVG 9
+#define PHASE_DIFF_AVG 4
 //#define PERIOD_AVG 10
 #define PWM_MARGIN 255
+
+volatile uint8_t pllstate = 0;
+volatile uint8_t pllcount = 0;
 
 volatile uint8_t trigger_flags = 0;
 static volatile uint32_t millis = 0, seconds = 0;
@@ -209,146 +212,72 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
 #error Compiler not supported!
 #endif
 {
-  switch(__even_in_range(TA1IV, 0x0A)) {
-    case TA1IV_NONE: // 0x00
-      break;
-    case TA1IV_TACCR1: // 0x02
-      if(TA1CCTL1 & CCI)
-      {
-        // rising edge of reference signal from GPS
-        current_rising_ref = TA1CCR1;
-        // if in the meantime TA1IV_TACCR2 was also triggered wait to calculate it in vco ISR
-        //if(!(TA1IV & TA1IV_TACCR2))
-        //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
-        // VCO is already high
-        // it means ref is delayed, vco was just captured
-        // phase_diff is NEGATIVE
-        // if phase_diff rises, it means VCO is faster than REF
-        // if phase_diff drops, it means VCO is slower than REF
-        //if(TA1CCTL2 & CCI)
-        //if(!(TA1IV & TA1IV_TACCR2))
-        if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2))
-        {
-          //raw_phase_diff = (TA1IV & TA1IV_TACCR2)?TA1CCR2:current_rising_vco - current_rising_ref; // - target_phase_diff;
-          raw_phase_diff = current_rising_vco - current_rising_ref; // - target_phase_diff;
+  // 7654 3210
+  // 0RV0 0rv0
+  // 8421 8421
+  // REF signal P2.1
+  //if(TA1CCTL1 & SCCI)
+  if(P2IN & BIT1)
+    pllstate |= BIT6;
+  // VCO signal P2.4
+  //if(TA1CCTL2 & SCCI)
+  if(P2IN & BIT4)
+    pllstate |= BIT5;
 
-          //if(abs(raw_phase_diff) < (1000 << PHASE_DIFF_AVG))
-          {
-            if(phase_diff == INT32_MAX) {
-              phase_diff = (int32_t)(raw_phase_diff) << PHASE_DIFF_AVG;
-            } else {
-              phase_diff -= phase_diff >> PHASE_DIFF_AVG;
-              phase_diff += (int32_t)(raw_phase_diff);
-              ref_tracked = TRUE;
-              vco_tracked = TRUE;
-            }
-          }
-        }
-        //previous_rising_ref = current_rising_ref;
-      } else { //if(TA1CCTL1 & CCI)
-        // falling edge of reference signal from GPS
-        current_falling_ref = TA1CCR1;
-        // if in the meantime TA1IV_TACCR2 was also triggered wait to calculate it in vco ISR
-        //if(!(TA1IV & TA1IV_TACCR2))
-        //if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2)) {
-        // VCO is already high
-        // it means ref is delayed, vco was just captured
-        // phase_diff is NEGATIVE
-        // if phase_diff rises, it means VCO is faster than REF
-        // if phase_diff drops, it means VCO is slower than REF
-        //if(TA1CCTL2 & CCI)
-        //if(!(TA1IV & TA1IV_TACCR2))
-        if((TA1CCTL2 & CCI) && !(TA1IV & TA1IV_TACCR2))
-        {
-          //raw_phase_diff = (TA1IV & TA1IV_TACCR2)?TA1CCR2:current_rising_vco - current_rising_ref; // - target_phase_diff;
-          raw_phase_diff = current_falling_vco - current_falling_ref; // - target_phase_diff;
-
-          //if(abs(raw_phase_diff) < (1000 << PHASE_DIFF_AVG))
-          {
-            if(phase_diff == INT32_MAX) {
-              phase_diff = (int32_t)(raw_phase_diff) << PHASE_DIFF_AVG;
-            } else {
-              phase_diff -= phase_diff >> PHASE_DIFF_AVG;
-              phase_diff += (int32_t)(raw_phase_diff);
-              ref_tracked = TRUE;
-              vco_tracked = TRUE;
-            }
-          }
-        }
-        //previous_falling_ref = current_falling_ref;
-      } //if(TA1CCTL1 & CCI)
-      TA1IV &= ~TA1IV_TACCR1;
-      break;
-    case TA1IV_TACCR2: // 0x04
-      if(TA1CCTL2 & CCI)
-      {
-        // rising edge of controlled signal from VCO
-        current_rising_vco = TA1CCR2;
-        //if(!(TA1IV & TA1IV_TACCR1))
-        // it means vco is delayed, ref was just captured
-        //if(TA1CCTL1 & CCI)
-        //if(!(TA1IV & TA1IV_TACCR1))
-        if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1))
-        {
-          // phase_diff is POSITIVE
-          //raw_phase_diff = current_rising_vco - (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref; // - target_phase_diff;
-          raw_phase_diff = current_rising_vco - current_rising_ref; // - target_phase_diff;
-
-          //if(abs(raw_phase_diff) < (1000 << PHASE_DIFF_AVG))
-          {
-            if(phase_diff == INT32_MAX) {
-              phase_diff = (int32_t)(raw_phase_diff) << PHASE_DIFF_AVG;
-            } else {
-              phase_diff -= phase_diff >> PHASE_DIFF_AVG;
-              phase_diff += (int32_t)(raw_phase_diff);
-              vco_tracked = TRUE;
-              ref_tracked = TRUE;
-            }
-          }
-        }
-        //previous_rising_vco = current_rising_vco;
-      } else { //if(TA1CCTL2 & CCI)
-        // falling edge of controlled signal from VCO
-        current_falling_vco = TA1CCR2;
-        //if(!(TA1IV & TA1IV_TACCR1))
-        // it means vco is delayed, ref was just captured
-        //if(TA1CCTL1 & CCI)
-        //if(!(TA1IV & TA1IV_TACCR1))
-        if((TA1CCTL1 & CCI) && !(TA1IV & TA1IV_TACCR1))
-        {
-          // phase_diff is POSITIVE
-          //raw_phase_diff = current_rising_vco - (TA1IV & TA1IV_TACCR1)?TA1CCR1:current_rising_ref; // - target_phase_diff;
-          raw_phase_diff = current_falling_vco - current_falling_ref; // - target_phase_diff;
-
-          //if(abs(raw_phase_diff) < (1000 << PHASE_DIFF_AVG))
-          {
-            if(phase_diff == INT32_MAX) {
-              phase_diff = (int32_t)(raw_phase_diff) << PHASE_DIFF_AVG;
-            } else {
-              phase_diff -= phase_diff >> PHASE_DIFF_AVG;
-              phase_diff += (int32_t)(raw_phase_diff);
-              vco_tracked = TRUE;
-              ref_tracked = TRUE;
-            }
-          }
-        }
-        //previous_falling_vco = current_falling_vco;
-      } //if(TA1CCTL2 & CCI)
-      TA1IV &= ~TA1IV_TACCR2;
-      break;
-    case TA1IV_6: // reserved 0x06
-      TA1IV &= ~TA1IV_6;
-      break;
-    case TA1IV_8: // reserved 0x08
-      TA1IV &= ~TA1IV_8;
-      break;
-    case TA1IV_TAIFG: // 0x0A
-      TA1IV &= ~TA1IV_TAIFG;
-      break;
-    default:
-      break;
+  //switch(__even_in_range(pllstate, 0x66))
+  switch(pllstate)
+  {// 0000 0100
+    case 0x04: case 0x06: case 0x24: case 0x26:
+      current_falling_ref = TA1CCR1;
+    break;
+    case 0x40: case 0x42: case 0x60: case 0x62:
+      current_rising_ref = TA1CCR1;
+    break;
   }
-  //LPM0_EXIT;
+
+  switch(pllstate)
+  {
+    case 0x20: case 0x24: case 0x60: case 0x64:
+      current_rising_vco = TA1CCR2;
+    break;
+    case 0x02: case 0x06: case 0x42: case 0x46:
+      current_falling_vco = TA1CCR2;
+    break;
+  }
+
+  switch(pllstate)
+  {
+    case 0x20:
+    //case 0x24:
+    case 0x40: case 0x42: case 0x60: case 0x62: case 0x64:
+      raw_phase_diff = current_rising_vco - current_rising_ref;
+    break;
+    case 0x02: case 0x04: case 0x06: case 0x24: case 0x26:
+    //case 0x42:
+    case 0x46:
+      raw_phase_diff = current_falling_vco - current_falling_ref;
+    break;
+  }
+
+  if(raw_phase_diff < -1003)
+    raw_phase_diff += 2006;
+//  if(raw_phase_diff < -1003)
+//    raw_phase_diff += 2006;
+  if(raw_phase_diff > 1003)
+    raw_phase_diff -= 2006;
+
+  if(phase_diff == INT32_MAX) {
+    phase_diff = (int32_t)(raw_phase_diff) << PHASE_DIFF_AVG;
+  } else {
+    phase_diff -= phase_diff >> PHASE_DIFF_AVG;
+    phase_diff += (int32_t)(raw_phase_diff);
+    vco_tracked |= TRUE;
+    ref_tracked |= TRUE;
+  }
+
+  if(TA1IV & TA1IV_TACCR1)
+    ++pllcount;
+  pllstate >>= 4;
 }
 
 volatile uint8_t display_update = 2;
