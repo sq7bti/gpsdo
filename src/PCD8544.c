@@ -364,7 +364,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
     setAddr(x, row);
     while(x < LCD_MAX_X) {
       //setAddr(x, row);
-      if(x == 41) {
+      if(x == 42) {
         writeToLCD(LCD5110_DATA, MID);
       } else {
         if((x == val) || (x == valf)) {
@@ -394,7 +394,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
       setAddr(prev_pd_val, row);
       writeToLCD(LCD5110_DATA, BOT);
       while(prev_pd_val < val-1) {
-        writeToLCD(LCD5110_DATA, (prev_pd_val==41)?MID:((prev_pd_val==marker)?0x0F:BOT));
+        writeToLCD(LCD5110_DATA, (prev_pd_val==42)?MID:((prev_pd_val==marker)?0x0F:BOT));
         ++prev_pd_val;
       }
       writeToLCD(LCD5110_DATA, (prev_pd_val==marker)?0x66:FLANK);
@@ -402,7 +402,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
       setAddr(prev_pd_valf, row);
       writeToLCD(LCD5110_DATA, TOP);
       while(prev_pd_valf < valf-1) {
-        writeToLCD(LCD5110_DATA, (prev_pd_valf==41)?MID:((prev_pd_valf==marker)?0x0F:TOP));
+        writeToLCD(LCD5110_DATA, (prev_pd_valf==42)?MID:((prev_pd_valf==marker)?0x0F:TOP));
         ++prev_pd_valf;
       }
       writeToLCD(LCD5110_DATA, BOT);
@@ -411,7 +411,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
       uint8_t x = val;
       writeToLCD(LCD5110_DATA, (x==marker)?0x66:FLANK);
       while(x < prev_pd_val-1) {
-        writeToLCD(LCD5110_DATA, (x==41)?MID:((x==marker)?BOTM:BOT));
+        writeToLCD(LCD5110_DATA, (x==42)?MID:((x==marker)?BOTM:BOT));
         ++x;
       }
       writeToLCD(LCD5110_DATA, ((x==marker)?TOPM:TOP));
@@ -419,7 +419,7 @@ void phase_difference(uint8_t row, uint16_t val, uint16_t marker) {
       x = valf;
       writeToLCD(LCD5110_DATA, (x==marker)?0x66:FLANK);
       while(x < prev_pd_valf-1) {
-        writeToLCD(LCD5110_DATA, (x==41)?MID:((x==marker)?BOTM:TOP));
+        writeToLCD(LCD5110_DATA, (x==42)?MID:((x==marker)?BOTM:TOP));
         ++x;
       }
       writeToLCD(LCD5110_DATA, ((x==marker)?TOPM:BOT));

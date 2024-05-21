@@ -66,8 +66,8 @@
 #define MIN_CAPTURE 50
 // 0x01230123 0x00040000
 // there's no need to wind-up more than 1/2 of PWM either way
-#define INTEGRAL_MAX 262144
-//#define INTEGRAL_MAX 65536
+//#define INTEGRAL_MAX 262144
+#define INTEGRAL_MAX 65536
 //#define INTEGRAL_MAX 16384
 //#define INTEGRAL_MAX 4096
 

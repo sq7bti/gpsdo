@@ -1,6 +1,6 @@
 #include "timer.h"
 
-#define PHASE_DIFF_AVG 4
+#define PHASE_DIFF_AVG 9
 //#define PERIOD_AVG 10
 #define PWM_MARGIN 255
 
