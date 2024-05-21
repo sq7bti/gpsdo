@@ -272,8 +272,11 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       // +500 is angle of 90 degrees difference between REF and VCO
       // phase_diff <-1000 ... +1000>
       p_factor = error_current;
-      if((i_factor < INTEGRAL_MAX) && (i_factor > -INTEGRAL_MAX))
-        i_factor += error_current;
+      i_factor += error_current;
+      if(i_factor > (int32_t)(INTEGRAL_MAX))
+        i_factor = (int32_t)(INTEGRAL_MAX);
+      if(i_factor < (int32_t)(-INTEGRAL_MAX))
+        i_factor = (int32_t)(-INTEGRAL_MAX);
       d_factor = (error_current - error_previous);
       error_previous = error_current;
       // p_factor <-500 .. + 1500>
