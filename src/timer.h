@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-#define TA0CCR1_DEF 0x73FD
+#define TA0CCR1_DEF 0x73FC
 
 #define TRIGGER_PID 7
 #define TRIGGER_SLW 4

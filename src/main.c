@@ -62,7 +62,7 @@
 #define KI 9
 #define KD 2
 
-#define MAX_CAPTURE 650
+#define MAX_CAPTURE 800
 #define MIN_CAPTURE 150
 // 0x01230123 0x00040000
 // there's no need to wind-up more than 1/2 of PWM either way
@@ -177,6 +177,7 @@ char *p = &monitoring[0];
 
 ctrl_state_t controller(ctrl_state_t current_state) {
   ctrl_state_t next_state = current_state;
+  int16_t curr_phase_diff;
   switch(current_state) {
     case STARTUP:
       next_state = WARM_UP;
@@ -201,30 +202,46 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       }
     break;
     case LOCKING:
-      if((fix_status == 'A') && ref_tracked && vco_tracked) // && (getSeconds() > fix_alarm))
+      curr_phase_diff = getPhaseDiff();
+      if(//(curr_phase_diff > -MAX_CAPTURE) && (curr_phase_diff < MAX_CAPTURE) &&
+         //(abs(abs(curr_phase_diff) - 500) < 32) &&
+         (fix_status == 'A')
+         && ref_tracked
+         && vco_tracked
+         && (getSeconds() > fix_alarm)
+       )
       {
-        if((getPhaseDiff() > -MIN_CAPTURE) && (getPhaseDiff() < MIN_CAPTURE)) {
-          if(getPhaseDiff() > 0)
+#if 0
+        if(curr_phase_diff > 0)
+          setTargetPhaseDiff(500);
+        else
+          setTargetPhaseDiff(-500);
+#else
+        if((curr_phase_diff > -MIN_CAPTURE) && (curr_phase_diff < MIN_CAPTURE)) {
+          if(curr_phase_diff > 0)
             setTargetPhaseDiff(MIN_CAPTURE);
           else
             setTargetPhaseDiff(-MIN_CAPTURE);
         } else {
-          if(getPhaseDiff() < -MAX_CAPTURE)
+          if(curr_phase_diff < -MAX_CAPTURE)
             setTargetPhaseDiff(-MAX_CAPTURE);
           else {
-            if(getPhaseDiff() > MAX_CAPTURE)
+            if(curr_phase_diff > MAX_CAPTURE)
               setTargetPhaseDiff(MAX_CAPTURE);
             else
-              setTargetPhaseDiff(getPhaseDiff());
+              setTargetPhaseDiff(curr_phase_diff);
             }
         }
+#endif
         kp = KP;
         ki = KI;
         kd = KD;
         // target phaes diff should be <-999 ... +999
         while(txBusy());
         char *p = &monitoring[0];
-        strprintf(&p, "PID: %i/%i/%i; start tracking %c%i ... \r\n", kp, ki, kd, getTargetPhaseDiff()>0?'+':' ', getTargetPhaseDiff());
+        strprintf(&p, "PID: %i/%i/%i; start tracking %c%i -> %c%i... \r\n", kp, ki, kd,
+        curr_phase_diff>0?'+':' ', curr_phase_diff,
+        getTargetPhaseDiff()>0?'+':' ', getTargetPhaseDiff());
         *p = 0;
         putstring(monitoring);
         while(txBusy());
@@ -232,13 +249,12 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         error_max = INT16_MIN;
         error_min = INT16_MAX;
         p = &monitoring[0];
-        //             "%c %i   T    PWM PD   F.f  E     eD    DOP P i Il D\r\n",
-        strprintf(&p, "fix sats temp pwm ctrl freq error delta dop P I I D\r\n");
+        //             "%c %i   T    PWM PD   F.f  E  driftrate eD DOP P i Il D\r\n",
+        //             "%c%i    T    PWM PD   F.f  diff   E     eD    DOP P  i Il D\r\n",
+        strprintf(&p, "fix sats temp pwm ctrl freq phdiff error delta dop P I I D\r\n");
         *p = 0;
         putstring(monitoring);
         while(txBusy());
-      } else {
-        fix_alarm = getSeconds() + 2;
       }
     break;
     case TRACKING:
@@ -255,11 +271,8 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       // +500 is angle of 90 degrees difference between REF and VCO
       // phase_diff <-1000 ... +1000>
       p_factor = error_current;
-      i_factor += error_current;
-      if(i_factor > INTEGRAL_MAX)
-        i_factor = (int32_t)INTEGRAL_MAX;
-      if(i_factor < -INTEGRAL_MAX)
-        i_factor = (int32_t)(-(INTEGRAL_MAX));
+      if((i_factor < INTEGRAL_MAX) && (i_factor > -INTEGRAL_MAX))
+        i_factor += error_current;
       d_factor = (error_current - error_previous);
       error_previous = error_current;
       // p_factor <-500 .. + 1500>
@@ -429,7 +442,7 @@ int main(void) {
         case SLOPE:
 #endif /* DEBUG */
         case TRACKING:
-          if(abs(error_current) > 64)
+          if(abs(error_current) > 16)
             phase_difference(5, (getPhaseDiff() +
 #ifdef OVERCLOCK
                                               1000
@@ -497,16 +510,16 @@ int main(void) {
                     "%c %i %q %x %r %i %i %i %i %i %i %i %l %l %i\r\n",
 #endif
 #if CAPTURE_MULT == 50000
-                    //"%c%i T PWM PD F.f  ref vco pe E eD P  i Il D\r\n",
+                    //"%c%i T PWM PD F.f  ref vco pe ped E eD P  i Il D\r\n",
                     //"%c %i %q %x %r %i.%i %i %i %i %i %i %i %l %l %i\r\n",
-                    //"%c%i T PWM PD F.f  E eD DOP P  i Il D\r\n",
-                    "%c %i %q %x %r %i.%i %i %i %q %i %i %l %i\r\n",
+                    //"%c%i T PWM PD F.f diff E eD DOP P  i Il D\r\n",
+                    "%c %i %q %x %r %i.%i %i %i %i %q %i %i %l %i\r\n",
 #endif
                     fix_status, used_sats, getOCXOTemperature(), getPWM(), getCtrl(),
                     //((int16_t)(getOCXO() - 50000000UL)),
                     freq_off_hz, freq_off_tenth,
                     //getPeriodRef(), getPeriodVCO(),
-                    //getPhaseDiff(),
+                    getPhaseDiff(),
                     error_current, error_delta,
                     ((uint16_t)hdop << 8) / 100,
                     p_factor, (int16_t)(i_factor >> KI), i_factor, d_factor);
