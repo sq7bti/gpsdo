@@ -136,7 +136,14 @@ void initSPI(void) {
 
 extern bool vco_tracked;
 extern bool ref_tracked;
-//extern uint8_t pllstate, pllcount;
+
+//extern uint16_t dec_pd,
+//                  inc_pd,
+//                  race_cond,
+//                  missed_ref_rising,
+//                  missed_ref_falling,
+//                  missed_vco_rising,
+//                  missed_vco_falling;
 
 int16_t error_current, error_previous, error_max, error_min, error_delta;
 //extern volatile uint16_t target_phase_diff;
@@ -425,12 +432,20 @@ int main(void) {
         case WARM_UP:
         case LOCKING:
 #ifdef OVERCLOCK
-          phase_difference(5, (getPhaseDiff() + 1003) / 32, ((getTargetPhaseDiff()==INT16_MAX)?-1:(getTargetPhaseDiff() + 1003) / 32));
+          phase_difference(5, (getPhaseDiff() + 1003) / 24, ((getTargetPhaseDiff()==INT16_MAX)?-1:(getTargetPhaseDiff() + 1003) / 24));
 #else
           phase_difference(5, (getPhaseDiff() + 800) / 24, ((getTargetPhaseDiff()==INT16_MAX)?-1:(getTargetPhaseDiff() + 800) / 24));
 #endif /* OVERCLOCK */
           //setAddr(0,1);
-          //writeWordToLCD(phase_diff);
+          //writeDecToLCD(race_cond);
+          //setAddr(0,2);
+          //writeDecToLCD(missed_ref_rising);
+          //setAddr(0,3);
+          //writeDecToLCD(missed_ref_falling);
+          //setAddr(42,2);
+          //writeDecToLCD(missed_vco_rising);
+          //setAddr(42,3);
+          //writeDecToLCD(missed_vco_falling);
         break;
 #ifdef DEBUG
         case TESTING:
@@ -441,7 +456,7 @@ int main(void) {
           if(abs(error_current) > 16)
           {
 #ifdef OVERCLOCK
-            phase_difference(5, (getPhaseDiff() + 1003) / 32, (getTargetPhaseDiff() + 1003) / 32);
+            phase_difference(5, (getPhaseDiff() + 1003) / 24, (getTargetPhaseDiff() + 1003) / 24);
 #else
             phase_difference(5, (getPhaseDiff() + 800) / 24, (getTargetPhaseDiff() + 800) / 24);
 #endif /* OVERCLOCK */
