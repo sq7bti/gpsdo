@@ -1,6 +1,6 @@
 #include "timer.h"
 
-#define PHASE_DIFF_AVG 4
+#define PHASE_DIFF_AVG 12
 //#define PERIOD_AVG 10
 #define PWM_MARGIN 255
 
@@ -231,36 +231,67 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
   //if(TA1IV & TA1IV_TACCR1)
   //++pllcount[irq_source >> 1];
 
+#if 1
+  pllstate |= ((P2IN & BIT1) << 4) | ((P2IN & BIT4) << 2);
+#else
   // 7654 3210
   // 0VR0 0vr0
   // 8421 8421
   // REF signal P2.1
-  //if(P2IN & BIT1)
-  if(TA1CCTL1 & CCI)
+  if(P2IN & BIT1)
+  //if(TA1CCTL1 & CCI)
     pllstate |= BIT5;
   // VCO signal P2.4
-  //if(P2IN & BIT4)
-  if(TA1CCTL2 & CCI)
+  if(P2IN & BIT4)
+  //if(TA1CCTL2 & CCI)
     pllstate |= BIT6;
+#endif
 
 #if 1
   // ref falling -> BIT1 && !BIT5
   //previous_falling_ref = current_falling_ref;
-  if((pllstate & BIT1) && !(pllstate & BIT5))
-    current_falling_ref = TA1CCR1;
+//  if((pllstate & BIT1) && !(pllstate & BIT5))
+//    current_falling_ref = TA1CCR1;
   // ref rising -> !BIT1 && BIT5
   //previous_rising_ref = current_rising_ref;
-  if(!(pllstate & BIT1) && (pllstate & BIT5))
-    current_rising_ref = TA1CCR1;
-
+//  if(!(pllstate & BIT1) && (pllstate & BIT5))
+//    current_rising_ref = TA1CCR1;
+  if(pllstate & BIT1)
+  {
+    if(!(pllstate & BIT5))
+    {
+      current_falling_ref = TA1CCR1;
+      raw_phase_diff = current_falling_vco - current_falling_ref;
+    }
+  } else {
+    if(pllstate & BIT5)
+    {
+      current_rising_ref = TA1CCR1;
+      raw_phase_diff = current_rising_vco - current_rising_ref;
+    }
+  }
   // vco falling -> BIT2 && !BIT6
   //previous_falling_vco = current_falling_vco;
-  if((pllstate & BIT2) && !(pllstate & BIT6))
-    current_falling_vco = TA1CCR2;
+//  if((pllstate & BIT2) && !(pllstate & BIT6))
+//    current_falling_vco = TA1CCR2;
   // vco rising -> !BIT2 && BIT6
   //previous_rising_vco = current_rising_vco;
-  if(!(pllstate & BIT2) && (pllstate & BIT6))
-    current_rising_vco = TA1CCR2;
+//  if(!(pllstate & BIT2) && (pllstate & BIT6))
+//    current_rising_vco = TA1CCR2;
+  if(pllstate & BIT2)
+  {
+    if(!(pllstate & BIT6))
+    {
+      current_falling_vco = TA1CCR2;
+      raw_phase_diff = current_falling_vco - current_falling_ref;
+    }
+  } else {
+    if(pllstate & BIT6)
+    {
+      current_rising_vco = TA1CCR2;
+      raw_phase_diff = current_rising_vco - current_rising_ref;
+    }
+  }
 #else
   switch(pllstate)
   {//      +R       +R-V       +R+V         +R
@@ -286,17 +317,28 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
   }
 #endif
 
+#if 0
   switch(pllstate)
-  {//      +R       +R-V         +V       -R+V       +R+V         +V         +R
+  { //     +R       +R-V         +V       -R+V       +R+V         +V         +R
     case 0x20: case 0x24: case 0x40: case 0x42: case 0x60: case 0x62: case 0x64:
       raw_phase_diff = current_rising_vco - current_rising_ref;
     break;
-    //     -R        -V        -R-V       +R-V         -V       -R+V         -R
-    //case 0x02: case 0x04: case 0x06: case 0x24: case 0x26: case 0x42: case 0x46:
-    //  raw_phase_diff = current_falling_vco - current_falling_ref;
-    //break;
+    //     -R        -V        -R-V
+    case 0x02: case 0x04: case 0x06:
+    //   +R-V
+    //case 0x24:
+    //     -V
+    case 0x26:
+    //   -R+V
+    //case 0x42:
+    //     -R
+    case 0x46:
+      raw_phase_diff = current_falling_vco - current_falling_ref;
+    break;
   }
+#endif
 
+#if 1
   if(raw_phase_diff < -1003)
   {
     raw_phase_diff += 2006;
@@ -307,8 +349,15 @@ void __attribute__ ((interrupt(TIMER1_A1_VECTOR))) Timer1_A1_iSR (void)
     raw_phase_diff -= 2006;
     //++dec_pd;
   }
+#endif
 
-  if(phase_diff == INT32_MAX) {
+  if((phase_diff > 990) && (raw_phase_diff < -990))
+    phase_diff = INT32_MAX;
+  if((phase_diff < -990) && (raw_phase_diff > 990))
+    phase_diff = INT32_MAX;
+
+  if((phase_diff == INT32_MAX))// || ((phase_diff > 0) ^ (raw_phase_diff > 0)))
+  {
     phase_diff = (int32_t)(raw_phase_diff) << PHASE_DIFF_AVG;
   } else {
     phase_diff -= phase_diff >> PHASE_DIFF_AVG;

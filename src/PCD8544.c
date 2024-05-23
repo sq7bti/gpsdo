@@ -303,7 +303,7 @@ void graph(uint8_t x, uint8_t y, uint8_t y0) {
     setAddr(x, row);
     writeToLCD(LCD5110_DATA, line);
   } else {
-    if((row > 1) && (row < 5)) {
+    if((row > 0) && (row < 5)) {
       setAddr(x, row);
       writeToLCD(LCD5110_DATA, line);
     }

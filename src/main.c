@@ -192,7 +192,8 @@ ctrl_state_t controller(ctrl_state_t current_state) {
       event_alarm = getSeconds();
     break;
     case WARM_UP:
-      if((getOCXOTemperature() > ((fix_status == 'A')?(50 << 8):(52 << 8)))) {
+      if((getOCXOTemperature() > ((fix_status == 'A')?(50 << 8):(52 << 8))))
+      {
         clearBank(1); clearBank(2); clearBank(3); clearBank(4);
         setAddr(0, 2);  //0123456789ABCD
         writeStringToLCD("waiting");
@@ -463,7 +464,8 @@ int main(void) {
           } else {
             setAddr(0, 5);
             writeMHzToLCD(getOCXO());
-            writeDecToLCD(y_scale);
+            if(y_scale)
+              writeDecToLCD(y_scale);
           }
           //setAddr(0, (error_current > -5)?4:1);
           setAddr(0, 1);
@@ -544,6 +546,24 @@ int main(void) {
     // executed once a second (time!)
     if(getTrigFlag(TRIGGER_SEC)) {
       switch(gpsdo_ctrl_state) {
+        case WARM_UP:
+          /*/=============
+          y = 24 - (getPhaseDiff() >> 6);
+          setAddr(x, 1); writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 2); writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 3); writeToLCD(LCD5110_DATA, 0);
+          setAddr(x, 4); writeToLCD(LCD5110_DATA, 0);
+          graph(x, y, 24);
+          //  pixel(x,24);
+          ++x;
+          if(x > 84)
+            x = 0;
+          setAddr(x, 1); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 2); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 3); writeToLCD(LCD5110_DATA, 0xFF);
+          setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
+          //=========*/
+        break;
         case LOCKING:
           // "waiting"
           setAddr(6*8, 2);
@@ -636,6 +656,7 @@ int main(void) {
           setAddr(x, 2); writeToLCD(LCD5110_DATA, 0xFF);
           setAddr(x, 3); writeToLCD(LCD5110_DATA, 0xFF);
           setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
+        //====================
         break;
         default:
         break;
