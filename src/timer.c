@@ -23,7 +23,7 @@ volatile uint8_t pllstate = 0;//
 volatile uint8_t irq_source;
 
 volatile uint8_t trigger_flags = 0;
-static volatile uint32_t millis = 0, seconds = 0;
+static volatile uint32_t millis = 0, seconds = 0, timer_s = 0;
 volatile uint32_t ocxo_count = 0;
 volatile uint32_t capture_count_acc = 0;
 volatile uint16_t capture_count = 0;
@@ -52,6 +52,9 @@ volatile bool ref_tracked = FALSE;
 
 uint32_t getMillis() { return millis/10; };
 uint32_t getSeconds() { return seconds; };
+void resetSeconds() { seconds = 0; };
+void setTimer(uint16_t t) { timer_s = t; };
+uint16_t getTimer() { return timer_s; };
 uint32_t getOCXO() { return ocxo_count; };
 uint16_t getPWM(void) { return pwm_output_duty; };
 bool getTrigFlag(int8_t id) {
@@ -416,7 +419,11 @@ void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer_ISR (void)
   //millis += 512;
   if(millis > 10000) {
     millis -= 10000;
+
     ++seconds;
+    if(timer_s)
+      --timer_s;
+
     trigger_flags |= 1 << TRIGGER_SEC;
     if(!(seconds%5))
       trigger_flags |= 1 << TRIGGER_SLW;

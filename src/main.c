@@ -57,7 +57,7 @@
 //#define DEBUG 1
 
 // KP=3 too weak
-#define KP 3
+#define KP 2
 // KI IS !!!!NEGATIVE!!!!
 #define KI 10
 #define KD 2
@@ -152,13 +152,10 @@ int32_t i_factor;
 int16_t d_factor;
 uint16_t new_pwm;
 uint8_t kp = KP, ki = KI, kd = KD;
-uint32_t event_alarm, fix_alarm;
+uint32_t fix_alarm;
 #ifdef DEBUG
 int16_t slope = 1;
 #endif /* DEBUG */
-
-uint16_t pid_loop_count = 0;
-uint16_t correction_period = 1, correction_timer = 0, correction_margin = 32;
 
 typedef enum {
   STARTUP = 0,
@@ -188,24 +185,28 @@ ctrl_state_t controller(ctrl_state_t current_state) {
   int16_t curr_phase_diff;
   switch(current_state) {
     case STARTUP:
+      setAddr(0, 3);  //0123456789ABCD
+      writeStringToLCD("waiting");
+      setAddr(6*6, 4);
+      writeStringToLCD("for OCXO");
+      resetSeconds();
       next_state = WARM_UP;
-      event_alarm = getSeconds();
     break;
     case WARM_UP:
       if((getOCXOTemperature() > ((fix_status == 'A')?(50 << 8):(52 << 8))))
       {
         clearBank(1); clearBank(2); clearBank(3); clearBank(4);
-        setAddr(0, 2);  //0123456789ABCD
+        setAddr(0, 3);  //0123456789ABCD
         writeStringToLCD("waiting");
-        setAddr(7*6, 3);
+        setAddr(7*6, 4);
         writeStringToLCD("for fix");
 #ifdef DEBUG
         next_state = TESTING;
-        event_alarm = getSeconds() + 15;
+        setTimer(15);
         setPWM(0x0000);
 #else
         next_state = LOCKING;
-        fix_alarm = getSeconds() + 2;
+        setTimer(2);
 #endif
         setTargetPhaseDiff(0);
       }
@@ -217,7 +218,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
          (fix_status == 'A')
          && ref_tracked
          && vco_tracked
-         && (getSeconds() > fix_alarm)
+         //&& (!getTimer())
        )
       {
 #if 0
@@ -297,27 +298,27 @@ ctrl_state_t controller(ctrl_state_t current_state) {
 
       if(fix_status != 'A') {
         next_state = WARM_UP;
-        event_alarm = getSeconds();
+        resetSeconds();
         ref_tracked = FALSE;
         vco_tracked = FALSE;
       }
     break;
 #ifdef DEBUG
     case TESTING:
-      if(getSeconds() == event_alarm) {
-        //next_state = FORCED;
-        next_state = SLOPE;
-        event_alarm = getSeconds() + 30;
+      if(!getTimer()) {
+        next_state = FORCED;
+        //next_state = SLOPE;
+        setTimer(30);
       }
     break;
     case FORCED:
-      if(getSeconds() == event_alarm) {
+      if(!getTimer()) {
         if(getPWM() > 0x8000) {
           setPWM(0x0000);
         } else {
           setPWM(0xFFFF);
         }
-        event_alarm = getSeconds() + 60;
+        setTimer(60);
       }
     break;
     case SLOPE:
@@ -331,7 +332,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         if(getPWM() < (0x00FF - slope)) {
           slope = (abs(slope) + 1);
           next_state = TESTING;
-          event_alarm = getSeconds() + 10;
+          setTimer(10);
         }
       }
     break;
@@ -351,14 +352,14 @@ int setup(void) {
 
   int i = 0;
 
-  for(i = 16; i > 0; --i)
-    __delay_cycles(500000);
+  setTimer(1);
+  while(getTimer());
 
   initLCD();
   clearLCD();
 
-  for(i = 16; i > 0; --i)
-    __delay_cycles(500000);
+  setTimer(1);
+  while(getTimer());
 
 //  if(IFG1 & OFIFG)
 //    writeStringToLCD("Xtal fault");
@@ -399,20 +400,10 @@ int setup(void) {
     //putstring(nmea_enable);
   }
 
-  i = getSeconds() + 3;
-  while(getSeconds() < i);
+  setTimer(3);
+  while(getTimer());
 
   clearLCD();
-  // 01:23:45
-  //setAddr(12, 5);
-  //writeCharToLCD(':');
-  //setAddr(30, 5);
-  //writeCharToLCD(':');
-  // 20-04:24
-  //setAddr(12, 4);
-  //writeCharToLCD('-');
-  //setAddr(30, 4);
-  //writeCharToLCD('-');
 }
 
 int main(void) {
@@ -466,6 +457,8 @@ int main(void) {
             writeMHzToLCD(getOCXO());
             if(y_scale)
               writeDecToLCD(y_scale);
+            else
+              writeCharToLCD(' ');
           }
           //setAddr(0, (error_current > -5)?4:1);
           setAddr(0, 1);
@@ -547,6 +540,7 @@ int main(void) {
     if(getTrigFlag(TRIGGER_SEC)) {
       switch(gpsdo_ctrl_state) {
         case WARM_UP:
+        case LOCKING:
           /*/=============
           y = 24 - (getPhaseDiff() >> 6);
           setAddr(x, 1); writeToLCD(LCD5110_DATA, 0);
@@ -563,11 +557,10 @@ int main(void) {
           setAddr(x, 3); writeToLCD(LCD5110_DATA, 0xFF);
           setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
           //=========*/
-        break;
-        case LOCKING:
-          // "waiting"
-          setAddr(6*8, 2);
-          writeDecToLCD(getSeconds() - event_alarm);
+//        break;
+//        case LOCKING:
+          setAddr(6*8, 3);
+          writeDecToLCD(getSeconds());
           writeCharToLCD('s');
         break;
         case TRACKING:
@@ -590,8 +583,11 @@ int main(void) {
             // 1 = +-32
             // 0 = +-16
             // y_max = 24 - E -> E = 24 - y_max
-            setAddr(84 - 6, 5);
-            writeDecToLCD(y_scale);
+            if(y_scale)
+            {
+              setAddr(84 - 6, 5);
+              writeDecToLCD(y_scale);
+            }
           }
 
           setAddr(x, 2); writeToLCD(LCD5110_DATA, 0);
@@ -614,6 +610,12 @@ int main(void) {
             y_min = 40;
             y_max = 8;
             x = 0;
+          }
+          if(x == 42)
+          {
+            setAddr(0, 4);
+            writeDecToLCD(getSeconds());
+            writeCharToLCD('s');
           }
           setAddr(x, 1); writeToLCD(LCD5110_DATA, 0xFF);
           setAddr(x, 2); writeToLCD(LCD5110_DATA, 0xFF);
