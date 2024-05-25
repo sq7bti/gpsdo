@@ -63,8 +63,9 @@ Explanation of LCD fields:
  ------------                                          |                   |
 |      10MHz |<-- VCO output --------------------------|2      P1.0 (ext)  |
 |      10kHz |<-- VCO output divided % 1000 -----------|12     P2.4        |
-|       Vref |<-- VCO input ------------\--------o<|---|14     P1.6 (neg)  |
-|            |                           \ ------o<|---|14     P2.0 (neg)  |
+|            |                       -----             |                   |
+|       Vref |<-- VCO ctrl input ---| LPF |-----o<|----|7      P2.0 (neg)  |
+|            |                       -----             |                   |
 |       LM35 |<-- temperature -------------------------|5      P1.3        |
  ------------                                          |                   |
                                                        |                   |
