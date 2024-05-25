@@ -10,7 +10,7 @@ The function of a controller boils down to:
 - monitor oven temperature (start operation only when reaches approx 52degC)
 - establish target phase difference - at the moment of acquisition and treat it as phase difference set-point for PID controller
 - control OCXO to achieve minimum phase error
-- bonus: input of Timer0_A is free to count up to 50000, which gives 0.2Hz resolution frequency meter displayed on the 5th line of LCD
+- bonus: input of Timer0_A is free to count up to 50000, which gives 0.2Hz resolution frequency meter displayed on the 5^th line of LCD
 
 Explanation of LCD fields:
 1. top line from left:
@@ -37,38 +37,39 @@ Explanation of LCD fields:
    - during tracking, relative phase difference (error function). PID controller should eliminate it and track it to zero. Scale function is indicated by digit in bottom-right: 5 down to 0 (ommited), indicates a +max/-min range in +16/-16 graph using 4 lines of LCD. Scale indicates power of 2 (2^y_scale) scale, hence 0 indicates +16/-16, while 1 +32/-32, through 5 which indicates +512/-512
 
 
-//       NOKIA 5110 LCD  84x48 pixels                                   MSP-EXP430G2
-//       ------------                                           -------------------
-//      |         GND|<-- Ground ------------------------------|J6     GND         |
-//      |          BL|<-- Back-light - tie to ground via res   |                   |
-//      |         VCC|<-- Vcc +3..5V --------------------------|1      VCC         |
-//      |            |                                         |                   |
-//      |         CLC|<-- Clock -------------------------------|7      P1.5        |
-//      |         DIN|<-- Data Input --------------------------|15     P1.7        |
-//      |          DC|<-- Data/Command (high/low) -------------|11     P2.3        |
-//      |          CE|<-- Chip Enable (active low) ------------|18     P2.7  XOUT  |
-//      |         RST|<-- Reset - RC                           |                   |
-//       ------------                                          |                   |
-//                                                             |                   |
-//         GPS                                                 |                   |
-//       ------------                                          |                   |
-//      |         TX |<-- NMEA output -------------------------|3      P1.1        |
-//      |         RX |<-- NMEA input --------------------------|4      P1.2        |
-//      |      10kHz |<-- GPS reference signal--------+--------|19     P2.6 XIN    |
-//      |            |                                \--------|9      P2.1        |
-//      |        PPS |<-- NMEA input --------------------------|Jx.x   Px.x        |
-//       ------------                                          |                   |
-//                                                             |                   |
-//         OCXO                                                |                   |
-//       ------------                                          |                   |
-//      |      10MHz |<-- VCO output --------------------------|2      P1.0 (ext)  |
-//      |      10kHz |<-- VCO output divided % 1000 -----------|12     P2.4        |
-//      |       Vref |<-- VCO input ------------\--------o<|---|14     P1.6 (neg)  |
-//      |            |                           \ ------o<|---|14     P2.0 (neg)  |
-//      |       LM35 |<-- temperature -------------------------|5      P1.3        |
-//       ------------                                          |                   |
-//                                                             |                   |
-//         4046                                                |                   |
-//       ------------                                          |                   |
-//      |         PC |<-- Phase comparator output -------------|6      P1.4        |
-//       ------------                                           -------------------
+<pre> NOKIA 5110 LCD  84x48 pixels                                   MSP-EXP430G2
+ ------------                                           -------------------
+|         GND|<-- Ground ------------------------------|J6     GND         |
+|          BL|<-- Back-light - tie to ground via res   |                   |
+|         VCC|<-- Vcc +3..5V --------------------------|1      VCC         |
+|            |                                         |                   |
+|         CLC|<-- Clock -------------------------------|7      P1.5        |
+|         DIN|<-- Data Input --------------------------|15     P1.7        |
+|          DC|<-- Data/Command (high/low) -------------|11     P2.3        |
+|          CE|<-- Chip Enable (active low) ------------|18     P2.7  XOUT  |
+|         RST|<-- Reset - RC                           |                   |
+ ------------                                          |                   |
+                                                       |                   |
+   GPS                                                 |                   |
+ ------------                                          |                   |
+|         TX |<-- NMEA output -------------------------|3      P1.1        |
+|         RX |<-- NMEA input --------------------------|4      P1.2        |
+|      10kHz |<-- GPS reference signal--------+--------|19     P2.6 XIN    |
+|            |                                \--------|9      P2.1        |
+|        PPS |<-- NMEA input --------------------------|Jx.x   Px.x        |
+ ------------                                          |                   |
+                                                       |                   |
+   OCXO                                                |                   |
+ ------------                                          |                   |
+|      10MHz |<-- VCO output --------------------------|2      P1.0 (ext)  |
+|      10kHz |<-- VCO output divided % 1000 -----------|12     P2.4        |
+|       Vref |<-- VCO input ------------\--------o<|---|14     P1.6 (neg)  |
+|            |                           \ ------o<|---|14     P2.0 (neg)  |
+|       LM35 |<-- temperature -------------------------|5      P1.3        |
+ ------------                                          |                   |
+                                                       |                   |
+   4046                                                |                   |
+ ------------                                          |                   |
+|         PC |<-- Phase comparator output -------------|6      P1.4        |
+ ------------                                           -------------------
+ </pre>
