@@ -220,8 +220,17 @@ void writeMHzToLCD(uint32_t i) {
   writeDecToLCD(i%1000);
 #endif
 #if CAPTURE_MULT == 50000
-  if((i/5000000) < 10)
+  uint32_t j = i/5;
+  uint8_t k = 8;
+  while((j>9) && k)
+  {
+    j /= 10;
+    --k;
+  }
+  while(--k)
+  {
     writeCharToLCD(' ');
+  }
   writeDecToLCD(i/5);
   writeCharToLCD(',');
   writeDecToLCD(2*(i%5));

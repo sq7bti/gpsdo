@@ -455,6 +455,7 @@ int main(void) {
           } else {
             setAddr(0, 5);
             writeMHzToLCD(getOCXO());
+            setAddr(84 - 6, 5);
             if(y_scale)
               writeDecToLCD(y_scale);
             else
