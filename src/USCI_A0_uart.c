@@ -251,12 +251,22 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 					latitude_upd |= (1<<(lat_array[fieldTrack]));
 				};
 			}
+			if((field_id == 4) && (fieldTrack == 0)) {
+				latitude[10] = RXbyte;
+				latitude_upd |= (1<<10);
+			}
 			// longitude
-			//if(longitude[lon_array[rxTrack - 27]] != RXbyte) {
-			if((lon_array[fieldTrack] != -1) && (longitude[lon_array[fieldTrack]] != RXbyte)) {
-				longitude[lon_array[fieldTrack]] = RXbyte;
-				longitude_upd |= (1<<(lon_array[fieldTrack]));
-			};
+			if(field_id == 5) {
+				//if(longitude[lon_array[rxTrack - 27]] != RXbyte) {
+				if((lon_array[fieldTrack] != -1) && (longitude[lon_array[fieldTrack]] != RXbyte)) {
+					longitude[lon_array[fieldTrack]] = RXbyte;
+					longitude_upd |= (1<<(lon_array[fieldTrack]));
+				};
+			}
+			if((field_id == 6) && (fieldTrack == 0)) {
+				longitude[11] = RXbyte;
+				longitude_upd |= (1<<11);
+			}
 			// date
 			if(field_id == 9) {
 				if(date[clock_array[fieldTrack]] != RXbyte) {

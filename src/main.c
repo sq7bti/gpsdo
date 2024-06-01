@@ -153,6 +153,7 @@ int16_t d_factor;
 uint16_t new_pwm;
 uint8_t kp = KP, ki = KI, kd = KD;
 uint32_t fix_alarm;
+bool valid_gps = FALSE;
 #ifdef DEBUG
 int16_t slope = 1;
 #endif /* DEBUG */
@@ -256,6 +257,7 @@ ctrl_state_t controller(ctrl_state_t current_state) {
         putstring(monitoring);
         while(txBusy());
         next_state = TRACKING;
+        valid_gps = TRUE;
         error_max = INT16_MIN;
         error_min = INT16_MAX;
         p = &monitoring[0];
@@ -400,8 +402,13 @@ int setup(void) {
     //putstring(nmea_enable);
   }
 
-  setTimer(3);
+  setTimer(5);
   while(getTimer());
+
+  time_upd = 0;
+  date_upd = 0;
+  latitude_upd = 0;
+  longitude_upd = 0;
 
   clearLCD();
 }
@@ -480,6 +487,45 @@ int main(void) {
 
     // once the logging is synchronized with NMEA stream
     if(getTrigFlag(TRIGGER_LOG)) {
+
+      setAddr(8 * 6, 0);
+
+      setInverse(time_upd);
+      writeCharToLCD('T');
+      setInverse(FALSE);
+
+      setInverse(date_upd);
+      writeCharToLCD('D');
+      setInverse(FALSE);
+
+      setInverse(latitude_upd | longitude_upd);
+      writeCharToLCD('P');
+      setInverse(FALSE);
+      if(!valid_gps)
+      {// tens of seconds and seconds
+        time_upd &= ~(BIT6 | BIT7);
+        // tens of min and minutes
+        date_upd &= ~(BIT6 | BIT7);
+        latitude_upd &= ~(1<<8 | 1<<7 | 1<<6);
+        longitude_upd &= ~(1<<9 | 1<<8 | 1<<7);
+      }
+
+      // error abs()<8 means the phase error is less than 4 cycles of 10MHz
+      // in normal circumstances it would mean the frequency offset is
+      // less than 4Hz from the reference, but in conjunction with delta (variation)
+      // less than 2 the VCO signal should be of acceptable stability
+      if(gpsdo_ctrl_state == TRACKING)
+        setInverse((abs(error_current) < 8) && (error_delta < 2));
+      writeCharToLCD(ctrl_state_name[gpsdo_ctrl_state]);
+      setInverse(FALSE);
+
+      //if(fix_status_upd || used_sats_upd) {
+        writeCharToLCD(fix_status);
+        writeCharToLCD(i2h(used_sats));
+        fix_status_upd = FALSE;
+        used_sats_upd = FALSE;
+      //}
+
       p = &monitoring[0];
       while(txBusy());
       uint32_t freq_meas = getOCXO() / 5;
@@ -624,7 +670,7 @@ int main(void) {
           setAddr(x, 4); writeToLCD(LCD5110_DATA, 0xFF);
           //=========
         }
-        if(error_delta > 5) {
+        /*if(error_delta > 5) {
           setAddr(84 - 4*6, 4);
           writeStringToLCD(hdop_str);
         //} else {
@@ -632,12 +678,26 @@ int main(void) {
         //    setAddr(84 - 4*6, 4);
         //    writeStringToLCD("    ");
         //  }
-        }
+        }*/
       clearTrigFlag(TRIGGER_SEC);
     }
 
     // execute reeaally slow (like warming up)
     if(getTrigFlag(TRIGGER_SLW)) {
+
+      setAddr(0, 0);
+      setInverse(getOCXOTemperature() < (50<<8));
+      //writeQ88ToLCD(getOCXOTemperature());
+      writeDecToLCD((getOCXOTemperature() >> 8) + ((getOCXOTemperature() & 0x0080) >> 7));
+      writeCharToLCD(0x7F);
+      writeCharToLCD('C');
+      setInverse(FALSE);
+      writeDecToLCD((getIntTemperature() >> 8) + ((getIntTemperature() & 0x0080) >> 7));
+      writeCharToLCD(0x7F);
+      writeCharToLCD('C');
+      //writeCharToLCD(' ');
+      //writeCharToLCD(' ');
+
       switch(gpsdo_ctrl_state) {
         case WARM_UP:
         //case LOCKING:
@@ -670,48 +730,6 @@ int main(void) {
 
     // executed to follow ADC measurements
     if(getTrigFlag(TRIGGER_ADC)) {
-      setAddr(0, 0);
-      clearBank(0);
-      setInverse(getOCXOTemperature() < (50<<8));
-      //writeQ88ToLCD(getOCXOTemperature());
-      writeDecToLCD((getOCXOTemperature() >> 8) + ((getOCXOTemperature() & 0x0080) >> 7));
-      writeCharToLCD(0x7F);
-      writeCharToLCD('C');
-      setInverse(FALSE);
-      writeDecToLCD((getIntTemperature() >> 8) + ((getIntTemperature() & 0x0080) >> 7));
-      writeCharToLCD(0x7F);
-      writeCharToLCD('C');
-      //writeCharToLCD(' ');
-      //writeCharToLCD(' ');
-
-      setInverse(time_upd);
-      writeCharToLCD('T');
-      setInverse(FALSE);
-
-      setInverse(date_upd);
-      writeCharToLCD('D');
-      setInverse(FALSE);
-
-      setInverse(latitude_upd | longitude_upd);
-      writeCharToLCD('P');
-      setInverse(FALSE);
-
-      // error abs()<8 means the phase error is less than 4 cycles of 10MHz
-      // in normal circumstances it would mean the frequency offset is
-      // less than 4Hz from the reference, but in conjunction with delta (variation)
-      // less than 2 the VCO signal should be of acceptable stability
-      if(gpsdo_ctrl_state == TRACKING)
-        setInverse((abs(error_current) < 8) && (error_delta < 2));
-      writeCharToLCD(ctrl_state_name[gpsdo_ctrl_state]);
-      setInverse(FALSE);
-
-      //if(fix_status_upd || used_sats_upd) {
-        writeCharToLCD(fix_status);
-        writeCharToLCD(i2h(used_sats));
-        fix_status_upd = FALSE;
-        used_sats_upd = FALSE;
-      //}
-
       switch(gpsdo_ctrl_state) {
         case TRACKING:
           //setAddr(0, 1);
