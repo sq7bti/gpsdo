@@ -228,107 +228,111 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 			}
 		}
 
-		if(frame_type == RMC) {
-			// time
-			if(field_id == 1) {
-				if(time[clock_array[fieldTrack]] != RXbyte) {
-					time[clock_array[fieldTrack]] = RXbyte;
-					time_upd |= (1<<(clock_array[fieldTrack]));
-				};
-			}
-			// fix status
-			if(field_id == 2) {
-				if(fix_status != RXbyte) {
-					fix_status = RXbyte;
-					fix_status_upd = TRUE;
+		if(frame_type == RMC)
+		{
+			switch(field_id)
+			{
+				case 1: // time
+					if(time[clock_array[fieldTrack]] != RXbyte) {
+						time[clock_array[fieldTrack]] = RXbyte;
+						time_upd |= (1<<(clock_array[fieldTrack]));
+					};
+				break;
+				case 2: // fix status
+					if(fix_status != RXbyte) {
+						fix_status = RXbyte;
+						fix_status_upd = TRUE;
 				}
-			}
-			// latitude
-			if(field_id == 3) {
-				//if(latitude[lat_array[rxTrack - 15]] != RXbyte) {
-				if((lat_array[fieldTrack] != -1) && (latitude[lat_array[fieldTrack]] != RXbyte)) {
-					latitude[lat_array[fieldTrack]] = RXbyte;
-					latitude_upd |= (1<<(lat_array[fieldTrack]));
-				};
-			}
-			if((field_id == 4) && (fieldTrack == 0)) {
-				latitude[10] = RXbyte;
-				latitude_upd |= (1<<10);
-			}
-			// longitude
-			if(field_id == 5) {
-				//if(longitude[lon_array[rxTrack - 27]] != RXbyte) {
-				if((lon_array[fieldTrack] != -1) && (longitude[lon_array[fieldTrack]] != RXbyte)) {
-					longitude[lon_array[fieldTrack]] = RXbyte;
-					longitude_upd |= (1<<(lon_array[fieldTrack]));
-				};
-			}
-			if((field_id == 6) && (fieldTrack == 0)) {
-				longitude[11] = RXbyte;
-				longitude_upd |= (1<<11);
-			}
-			// date
-			if(field_id == 9) {
-				if(date[clock_array[fieldTrack]] != RXbyte) {
-					date[clock_array[fieldTrack]] = RXbyte;
-					date_upd |= (1<<(clock_array[fieldTrack]));
-				};
+				break;
+				case 3: // latitude
+					if((lat_array[fieldTrack] != -1) && (latitude[lat_array[fieldTrack]] != RXbyte)) {
+						latitude[lat_array[fieldTrack]] = RXbyte;
+						latitude_upd |= (1<<(lat_array[fieldTrack]));
+					};
+				break;
+				case 4:
+					if(fieldTrack == 0) {
+						latitude[10] = RXbyte;
+						latitude_upd |= (1<<10);
+					}
+				break;
+				case 5: // longitude
+					if((lon_array[fieldTrack] != -1) && (longitude[lon_array[fieldTrack]] != RXbyte)) {
+						longitude[lon_array[fieldTrack]] = RXbyte;
+						longitude_upd |= (1<<(lon_array[fieldTrack]));
+					};
+				break;
+				case 6:
+					if(fieldTrack == 0) {
+						longitude[11] = RXbyte;
+						longitude_upd |= (1<<11);
+					}
+				break;
+				case 9: // date
+					if(date[clock_array[fieldTrack]] != RXbyte) {
+						date[clock_array[fieldTrack]] = RXbyte;
+						date_upd |= (1<<(clock_array[fieldTrack]));
+					};
+				break;
 			}
 		}
 		if(frame_type == GGA) {
-			if(field_id == 7) {
-				switch(fieldTrack) {
-					case 0:
-					if((used_sats / 10) != h2i(RXbyte)) {
-						used_sats_upd = TRUE;
-						used_sats %= 10;
-						used_sats += 10 * h2i(RXbyte);
+			switch(field_id)
+			{
+				case 7:
+					if(fieldTrack)
+					{
+						if((used_sats % 10) != h2i(RXbyte)) {
+							used_sats_upd = TRUE;
+							used_sats -= used_sats % 10;
+							used_sats += h2i(RXbyte);
+						}
+					} else {
+						if((used_sats / 10) != h2i(RXbyte)) {
+							used_sats_upd = TRUE;
+							used_sats %= 10;
+							used_sats += 10 * h2i(RXbyte);
+						}
 					}
-					break;
-					case 1:
-					if((used_sats % 10) != h2i(RXbyte)) {
-						used_sats_upd = TRUE;
-						used_sats -= used_sats % 10;
-						used_sats += h2i(RXbyte);
+				break;
+				case 8: // hdop
+					hdop_str[fieldTrack] = RXbyte;
+				break;
+				case 9: // altitude
+				{
+					// take care of HDOP
+					if(fieldTrack == 0) {
+						volatile char *p = hdop_str;
+						hdop = 0;
+						while(*p) {
+							if(*p != '.') {
+								hdop *= 10;
+								hdop += h2i(*p);
+							}
+							++p;
+						}
 					}
-					break;
+					alt_str[fieldTrack] = RXbyte;
 				}
-			}
-			// hdop
-			if(field_id == 8) {
-				hdop_str[fieldTrack] = RXbyte;
-			}
-			// altitude
-			if(field_id == 9) {
-				// take care of HDOP
-				if(fieldTrack == 0) {
-					volatile char *p = hdop_str;
-					hdop = 0;
+				break;
+				case 10: // take care of altitude parsing
+				if(fieldTrack == 0)
+				{
+					volatile char *p = alt_str;
+					altitude = 0;
+					if(*p == '-')
+						++p;
 					while(*p) {
 						if(*p != '.') {
-							hdop *= 10;
-							hdop += h2i(*p);
+							altitude *= 10;
+							altitude += h2i(*p);
 						}
 						++p;
 					}
+					if(alt_str[0] == '-')
+						altitude *= -1;
 				}
-				alt_str[fieldTrack] = RXbyte;
-			}
-			// take care of altitude parsing
-			if((field_id == 10) && (fieldTrack == 0)) {
-				volatile char *p = alt_str;
-				altitude = 0;
-				if(*p == '-')
-					++p;
-				while(*p) {
-					if(*p != '.') {
-						altitude *= 10;
-						altitude += h2i(*p);
-					}
-					++p;
-				}
-				if(alt_str[0] == '-')
-					altitude *= -1;
+				break;
 			}
 		}
 
